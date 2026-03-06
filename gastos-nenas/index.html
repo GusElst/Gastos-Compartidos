@@ -10,8 +10,8 @@
   <script src="https://accounts.google.com/gsi/client" async></script>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
-    body { background:#0a0a0a; font-family:'Inter',sans-serif; }
-    input,select,button,textarea { font-family:inherit; }
+    body { background:#0a0a0a; font-family:'Inter',sans-serif; font-size:16px; }
+    input,select,button,textarea { font-family:inherit; font-size:16px; }
     ::-webkit-scrollbar { width:4px; }
     ::-webkit-scrollbar-track { background:#111; }
     ::-webkit-scrollbar-thumb { background:#333; border-radius:4px; }
@@ -20,10 +20,10 @@
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const { useState, useEffect, useRef } = React;
+const { useState, useEffect, useRef, useCallback } = React;
 
-const CLIENT_ID = "325465436957-nkobkl7u4ljcuchuahrfd0arln04accr.apps.googleusercontent.com";
-const SCOPES    = "https://www.googleapis.com/auth/drive.file";
+const CLIENT_ID  = "325465436957-nkobkl7u4ljcuchuahrfd0arln04accr.apps.googleusercontent.com";
+const SCOPES     = "https://www.googleapis.com/auth/drive.file";
 const CATEGORIES = [
   { id:"colegio",     label:"Colegio / Educación",   emoji:"🎓" },
   { id:"salud",       label:"Salud / Médicos",        emoji:"🏥" },
@@ -73,33 +73,45 @@ const uploadToDrive = async (file, name, folderId) => {
   return r.json();
 };
 
-// LocalStorage
 const lsGet = key => { try { const v=localStorage.getItem(key); return v?JSON.parse(v):null; } catch { return null; } };
 const lsSet = (key,val) => { try { localStorage.setItem(key,JSON.stringify(val)); } catch {} };
 
+// Tamaños generosos
+const sz = {
+  headerPad: "20px 18px 16px",
+  cardPad: "16px 18px",
+  btnPad: "14px 18px",
+  inputPad: "14px 16px",
+  fontSize: { xs:13, sm:15, md:17, lg:20, xl:24, xxl:28 },
+  radius: { sm:12, md:16, lg:20 },
+  gap: 14,
+};
+
 function App() {
   const currentUser = getUserFromURL();
-  const [gToken,         setGToken]         = useState(null);
-  const [gLoading,       setGLoading]       = useState(false);
-  const [expenses,       setExpenses]       = useState(()=>lsGet("gastos_expenses")||[]);
-  const [payments,       setPayments]       = useState(()=>lsGet("gastos_payments")||[]);
-  const [gallery,        setGallery]        = useState(()=>lsGet("gastos_gallery")||{});
-  const [view,           setView]           = useState("dashboard");
-  const [filterMonth,    setFilterMonth]    = useState(()=>new Date().toISOString().slice(0,7));
-  const [filterCat,      setFilterCat]      = useState("all");
-  const [filterNena,     setFilterNena]     = useState("all");
-  const [editing,        setEditing]        = useState(null);
-  const [form,           setForm]           = useState({ who:currentUser||"Gus", amount:"", category:"colegio", nena:"Valen", desc:"", date:new Date().toISOString().slice(0,10) });
-  const [scanLoading,    setScanLoading]    = useState(false);
-  const [toast,          setToast]          = useState(null);
-  const [deleteConfirm,  setDeleteConfirm]  = useState(null);
-  const [showPayModal,   setShowPayModal]   = useState(false);
-  const [payForm,        setPayForm]        = useState({ amount:"", note:"", date:new Date().toISOString().slice(0,10), month:"" });
-  const [payScanLoading, setPayScanLoading] = useState(false);
-  const [showLinks,      setShowLinks]      = useState(false);
-  const [driveStatus,    setDriveStatus]    = useState("");
+  const [gToken,        setGToken]        = useState(null);
+  const [gLoading,      setGLoading]      = useState(false);
+  const [expenses,      setExpenses]      = useState(()=>lsGet("gastos_expenses")||[]);
+  const [payments,      setPayments]      = useState(()=>lsGet("gastos_payments")||[]);
+  const [gallery,       setGallery]       = useState(()=>lsGet("gastos_gallery")||{});
+  const [view,          setView]          = useState("dashboard");
+  const [filterMonth,   setFilterMonth]   = useState(()=>new Date().toISOString().slice(0,7));
+  const [filterCat,     setFilterCat]     = useState("all");
+  const [filterNena,    setFilterNena]    = useState("all");
+  const [editing,       setEditing]       = useState(null);
+  const [form,          setForm]          = useState({ who:currentUser||"Gus", amount:"", category:"colegio", nena:"Valen", desc:"", date:new Date().toISOString().slice(0,10) });
+  const [scanLoading,   setScanLoading]   = useState(false);
+  const [toast,         setToast]         = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [dupConfirm,    setDupConfirm]    = useState(null);
+  const [showPayModal,  setShowPayModal]  = useState(false);
+  const [payForm,       setPayForm]       = useState({ amount:"", note:"", date:new Date().toISOString().slice(0,10), month:"" });
+  const [payScanLoad,   setPayScanLoad]   = useState(false);
+  const [showLinks,     setShowLinks]     = useState(false);
+  const [driveStatus,   setDriveStatus]   = useState("");
   const fileRef    = useRef();
   const payFileRef = useRef();
+  const gsiReady   = useRef(false);
 
   useEffect(()=>lsSet("gastos_expenses",expenses),[expenses]);
   useEffect(()=>lsSet("gastos_payments",payments),[payments]);
@@ -108,18 +120,45 @@ function App() {
   const showToast = (msg,type="ok") => { setToast({msg,type}); setTimeout(()=>setToast(null),3500); };
   const resetForm = () => { setForm({ who:currentUser||"Gus", amount:"", category:"colegio", nena:"Valen", desc:"", date:new Date().toISOString().slice(0,10) }); setEditing(null); };
 
-  const signInGoogle = () => {
-    setGLoading(true);
+  // Auto-connect Drive silenciosamente
+  const connectDrive = useCallback((silent=false) => {
+    if (!window.google?.accounts?.oauth2) return;
     const client = window.google.accounts.oauth2.initTokenClient({
-      client_id:CLIENT_ID, scope:SCOPES,
+      client_id: CLIENT_ID, scope: SCOPES,
+      prompt: silent ? "none" : "",
       callback: resp => {
-        if (resp.access_token) { window._gToken=resp.access_token; setGToken(resp.access_token); showToast("Google Drive conectado ✓"); }
-        else showToast("Error al conectar Drive","err");
+        if (resp.access_token) {
+          window._gToken = resp.access_token;
+          setGToken(resp.access_token);
+          if (!silent) showToast("Google Drive conectado ✓");
+          // Re-conectar automáticamente antes de que expire (55 min)
+          setTimeout(() => connectDrive(true), 55 * 60 * 1000);
+        } else if (!silent) {
+          showToast("Error al conectar Drive","err");
+        }
         setGLoading(false);
       }
     });
+    if (!silent) setGLoading(true);
     client.requestAccessToken();
-  };
+  }, []);
+
+  // Cuando Google Identity Services carga, intentar conexión silenciosa
+  useEffect(() => {
+    const tryAutoConnect = () => {
+      if (window.google?.accounts?.oauth2 && !gsiReady.current) {
+        gsiReady.current = true;
+        connectDrive(true);
+      }
+    };
+    const interval = setInterval(() => {
+      if (window.google?.accounts?.oauth2) {
+        clearInterval(interval);
+        tryAutoConnect();
+      }
+    }, 500);
+    return () => clearInterval(interval);
+  }, [connectDrive]);
 
   const uploadComprobante = async (file, expId, who, month) => {
     if (!gToken) return null;
@@ -135,11 +174,6 @@ function App() {
     } catch { setDriveStatus(""); return null; }
   };
 
-  const callClaude = async (body) => {
-    const res = await fetch("/api/claude", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) });
-    return res.json();
-  };
-
   const scanFile = async (file, onDone, setLoading) => {
     setLoading(true);
     const reader = new FileReader();
@@ -150,9 +184,12 @@ function App() {
         const block = isPDF
           ? { type:"document", source:{ type:"base64", media_type:"application/pdf", data:base64 } }
           : { type:"image",    source:{ type:"base64", media_type:file.type||"image/jpeg", data:base64 } };
-        const data   = await callClaude({ model:"claude-sonnet-4-20250514", max_tokens:500,
-          messages:[{ role:"user", content:[block,{ type:"text", text:`Analizá este comprobante y devolvé SOLO JSON sin markdown: {"amount":numero,"desc":"descripcion","date":"YYYY-MM-DD","category":"colegio|salud|ropa|actividades|otros"}. Hoy: ${new Date().toISOString().slice(0,10)}. amount:0 si no leés.` }] }]
+        const res  = await fetch("/api/claude", { method:"POST", headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:500,
+            messages:[{ role:"user", content:[block,{ type:"text", text:`Analizá este comprobante y devolvé SOLO JSON sin markdown: {"amount":numero,"desc":"descripcion","date":"YYYY-MM-DD","category":"colegio|salud|ropa|actividades|otros"}. Hoy: ${new Date().toISOString().slice(0,10)}. amount:0 si no leés.` }] }]
+          })
         });
+        const data   = await res.json();
         const parsed = JSON.parse(data.content?.map(b=>b.text||"").join("").replace(/```json|```/g,"").trim());
         onDone(parsed);
         showToast("Comprobante escaneado ✓");
@@ -162,7 +199,6 @@ function App() {
     reader.readAsDataURL(file);
   };
 
-  // Balance
   const monthExp  = m => expenses.filter(e=>e.date.startsWith(m));
   const totalBy   = (m,w) => monthExp(m).filter(e=>e.who===w).reduce((s,e)=>s+e.amount,0);
   const monthPays = m => payments.filter(p=>p.month===m);
@@ -172,19 +208,13 @@ function App() {
     const rawDiff=gus-bet, comp=rawDiff/2, paid=totalPaid(m), remaining=Math.max(0,Math.abs(comp)-paid);
     return { gus, bet, total, half, compensation:Math.abs(comp), debtor:comp>0?"Betiana":"Gus", creditor:comp>0?"Gus":"Betiana", paid, remaining, settled:remaining<=TOLERANCE, balanced:Math.abs(rawDiff)<=TOLERANCE };
   };
-
-  // Stats por nena
   const nenaStats = m => {
     const exps = monthExp(m);
     const valenTotal = exps.filter(e=>e.nena==="Valen"||e.nena==="Ambas").reduce((s,e)=>s+(e.nena==="Ambas"?e.amount/2:e.amount),0);
     const piliTotal  = exps.filter(e=>e.nena==="Pili" ||e.nena==="Ambas").reduce((s,e)=>s+(e.nena==="Ambas"?e.amount/2:e.amount),0);
-    const byCat = (nena) => CATEGORIES.map(cat => ({
-      ...cat,
-      total: exps.filter(e=>(e.nena===nena||e.nena==="Ambas")&&e.category===cat.id).reduce((s,e)=>s+(e.nena==="Ambas"?e.amount/2:e.amount),0)
-    })).filter(c=>c.total>0);
+    const byCat = nena => CATEGORIES.map(cat=>({...cat, total:exps.filter(e=>(e.nena===nena||e.nena==="Ambas")&&e.category===cat.id).reduce((s,e)=>s+(e.nena==="Ambas"?e.amount/2:e.amount),0)})).filter(c=>c.total>0);
     return { valenTotal, piliTotal, valenCats:byCat("Valen"), piliCats:byCat("Pili") };
   };
-
   const getAccDebt = () => {
     const all=[...new Set(expenses.map(e=>e.date.slice(0,7)))];
     let dG=0,dB=0;
@@ -192,9 +222,14 @@ function App() {
     return {debtGus:dG,debtBet:dB};
   };
 
-  const saveExpense = async () => {
+  const saveExpense = async (forceSave=false) => {
     if (!form.amount||isNaN(parseFloat(form.amount))) return showToast("Ingresá un monto válido","err");
     if (!form.desc.trim()) return showToast("Agregá una descripción","err");
+    if (!editing && !forceSave) {
+      const amt = parseFloat(form.amount);
+      const dup = expenses.find(e=>e.amount===amt&&e.date===form.date&&e.who===form.who);
+      if (dup) return setDupConfirm({ amt, date:form.date });
+    }
     const id    = editing||Date.now().toString();
     const entry = { who:form.who, amount:parseFloat(form.amount), category:form.category, nena:form.nena, desc:form.desc, date:form.date, id };
     editing ? setExpenses(prev=>prev.map(e=>e.id===editing?entry:e)) : setExpenses(prev=>[entry,...prev]);
@@ -214,74 +249,44 @@ function App() {
     showToast("Compensación registrada ✓");
   };
 
-  // Reporte HTML completo
-  const generateReport = (m) => {
-    const b    = getBal(m);
-    const ns   = nenaStats(m);
-    const exps = monthExp(m);
-    const pays = monthPays(m);
-    return `<!DOCTYPE html><html><head><meta charset="utf-8">
-    <title>Reporte ${monthLabel(m)}</title>
-    <style>
-      body{font-family:Arial,sans-serif;padding:32px;color:#222;max-width:800px;margin:0 auto}
-      h1{color:#6366f1;margin-bottom:4px}h2{color:#444;margin:24px 0 12px;border-bottom:2px solid #eee;padding-bottom:6px}h3{color:#666;margin:16px 0 8px}
-      table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
-      th,td{border:1px solid #ddd;padding:8px 12px;text-align:left}th{background:#f3f4f6;font-weight:600}
-      tr:nth-child(even){background:#f9fafb}
-      .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600}
-      .ok{background:#dcfce7;color:#166534}.warn{background:#fef3c7;color:#92400e}.err{background:#fee2e2;color:#991b1b}
-      .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:12px 0}
-      .card{background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:16px}
-      .card h3{margin-top:0}.num{font-size:24px;font-weight:700;color:#6366f1}
-      .valen{color:#d97706}.pili{color:#0891b2}
-      footer{margin-top:40px;color:#999;font-size:12px;border-top:1px solid #eee;padding-top:12px}
-    </style></head><body>
-    <h1>👧 Gastos de las Nenas</h1>
-    <p style="color:#888">Reporte mensual · <strong>${monthLabel(m)}</strong> · Generado el ${new Date().toLocaleDateString("es-AR")}</p>
-
-    <h2>💰 Balance General</h2>
+  const generateReport = m => {
+    const b=getBal(m), ns=nenaStats(m), exps=monthExp(m), pays=monthPays(m);
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Reporte ${monthLabel(m)}</title>
+    <style>body{font-family:Arial,sans-serif;padding:32px;color:#222;max-width:800px;margin:0 auto}h1{color:#6366f1}h2{color:#444;margin:24px 0 12px;border-bottom:2px solid #eee;padding-bottom:6px}
+    table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}th,td{border:1px solid #ddd;padding:8px 12px;text-align:left}th{background:#f3f4f6}tr:nth-child(even){background:#f9fafb}
+    .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600}.ok{background:#dcfce7;color:#166534}.err{background:#fee2e2;color:#991b1b}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:12px 0}.card{background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:16px}
+    .num{font-size:24px;font-weight:700;color:#6366f1}footer{margin-top:40px;color:#999;font-size:12px;border-top:1px solid #eee;padding-top:12px}</style></head><body>
+    <h1>👧 Gastos de las Nenas</h1><p style="color:#888">Reporte · <strong>${monthLabel(m)}</strong> · ${new Date().toLocaleDateString("es-AR")}</p>
+    <h2>💰 Balance</h2>
     <div class="grid">
       <div class="card"><h3 style="color:#6366f1">👨 Gus</h3><div class="num">${fmt(b.gus)}</div><div style="color:#888;font-size:13px">50% = ${fmt(b.half)}</div></div>
       <div class="card"><h3 style="color:#ec4899">👩 Betiana</h3><div class="num">${fmt(b.bet)}</div><div style="color:#888;font-size:13px">50% = ${fmt(b.half)}</div></div>
     </div>
-    <p><strong>Total del mes:</strong> ${fmt(b.total)} &nbsp;|&nbsp; <strong>50% c/u:</strong> ${fmt(b.half)}</p>
-    <p><strong>Estado:</strong> <span class="badge ${b.settled?"ok":"err"}">${b.settled?"✅ Compensado":`⚠️ ${b.debtor} debe ${fmt(b.remaining)} a ${b.creditor}`}</span></p>
-    ${pays.length>0?`<p><strong>Pagos registrados:</strong> ${pays.map(p=>`${p.date} ${fmt(p.amount)}${p.note?` (${p.note})`:""}`).join(" · ")}</p>`:""}
-
-    <h2>👧 Gastos por Niña</h2>
+    <p><strong>Total:</strong> ${fmt(b.total)} | <strong>Estado:</strong> <span class="badge ${b.settled?"ok":"err"}">${b.settled?"✅ Compensado":`⚠️ ${b.debtor} debe ${fmt(b.remaining)} a ${b.creditor}`}</span></p>
+    ${pays.length>0?`<p><strong>Pagos:</strong> ${pays.map(p=>`${p.date} ${fmt(p.amount)}${p.note?` (${p.note})`:""}`).join(" · ")}</p>`:""}
+    <h2>👧 Por Niña</h2>
     <div class="grid">
-      <div class="card"><h3 class="valen">🌟 Valen</h3><div class="num" style="color:#d97706">${fmt(ns.valenTotal)}</div>
-        ${ns.valenCats.map(c=>`<div style="display:flex;justify-content:space-between;font-size:13px;margin-top:6px"><span>${c.emoji} ${c.label}</span><span>${fmt(c.total)}</span></div>`).join("")}
-      </div>
-      <div class="card"><h3 class="pili">💫 Pili</h3><div class="num" style="color:#0891b2">${fmt(ns.piliTotal)}</div>
-        ${ns.piliCats.map(c=>`<div style="display:flex;justify-content:space-between;font-size:13px;margin-top:6px"><span>${c.emoji} ${c.label}</span><span>${fmt(c.total)}</span></div>`).join("")}
-      </div>
+      <div class="card"><h3 style="color:#d97706">🌟 Valen</h3><div class="num" style="color:#d97706">${fmt(ns.valenTotal)}</div>${ns.valenCats.map(c=>`<div style="display:flex;justify-content:space-between;font-size:13px;margin-top:6px"><span>${c.emoji} ${c.label}</span><span>${fmt(c.total)}</span></div>`).join("")}</div>
+      <div class="card"><h3 style="color:#0891b2">💫 Pili</h3><div class="num" style="color:#0891b2">${fmt(ns.piliTotal)}</div>${ns.piliCats.map(c=>`<div style="display:flex;justify-content:space-between;font-size:13px;margin-top:6px"><span>${c.emoji} ${c.label}</span><span>${fmt(c.total)}</span></div>`).join("")}</div>
     </div>
-
-    <h2>📋 Detalle de Gastos</h2>
-    <table>
-      <tr><th>Fecha</th><th>Quién pagó</th><th>Niña</th><th>Categoría</th><th>Descripción</th><th>Monto</th></tr>
-      ${exps.sort((a,b)=>a.date.localeCompare(b.date)).map(e=>`
-        <tr><td>${e.date}</td><td style="color:${userColor(e.who)};font-weight:600">${e.who}</td>
-        <td><span class="badge" style="background:${e.nena==="Valen"?"#fef3c7":e.nena==="Pili"?"#e0f2fe":"#ede9fe"};color:${nenaColor(e.nena)}">${e.nena||"-"}</span></td>
-        <td>${CATEGORIES.find(c=>c.id===e.category)?.emoji||""} ${CATEGORIES.find(c=>c.id===e.category)?.label||e.category}</td>
-        <td>${e.desc}</td><td style="font-weight:600">${fmt(e.amount)}</td></tr>`).join("")}
-      <tr style="background:#f3f4f6"><td colspan="5"><strong>Total</strong></td><td><strong>${fmt(b.total)}</strong></td></tr>
-    </table>
-    <footer>Gastos Nenas App · Gus & Betiana · ${monthLabel(m)}</footer>
-    </body></html>`;
+    <h2>📋 Detalle</h2>
+    <table><tr><th>Fecha</th><th>Quién</th><th>Niña</th><th>Categoría</th><th>Descripción</th><th>Monto</th></tr>
+    ${exps.sort((a,b)=>a.date.localeCompare(b.date)).map(e=>`<tr><td>${e.date}</td><td style="color:${userColor(e.who)};font-weight:600">${e.who}</td><td>${e.nena||"-"}</td><td>${CATEGORIES.find(c=>c.id===e.category)?.emoji||""} ${CATEGORIES.find(c=>c.id===e.category)?.label||e.category}</td><td>${e.desc}</td><td style="font-weight:600">${fmt(e.amount)}</td></tr>`).join("")}
+    <tr style="background:#f3f4f6"><td colspan="5"><strong>Total</strong></td><td><strong>${fmt(b.total)}</strong></td></tr></table>
+    <footer>Gastos Nenas App · Gus & Betiana · ${monthLabel(m)}</footer></body></html>`;
   };
 
   const exportReport = async () => {
     const html = generateReport(filterMonth);
     if (gToken) {
       try {
-        setDriveStatus("Exportando reporte a Drive...");
+        setDriveStatus("Exportando reporte...");
         const root = await findOrCreate("Gastos Nenas");
         const rf   = await findOrCreate("Reportes", root);
         const mf   = await findOrCreate(filterMonth, rf);
         await uploadToDrive(new File([new Blob([html],{type:"text/html"})],`Reporte-${filterMonth}.html`,{type:"text/html"}), `Reporte-${filterMonth}.html`, mf);
-        setDriveStatus(""); showToast("Reporte exportado a Drive ✓");
+        setDriveStatus(""); showToast("Reporte en Drive ✓");
       } catch { setDriveStatus(""); showToast("Error al exportar","err"); }
     } else {
       const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([html],{type:"text/html"})); a.download=`Reporte-${filterMonth}.html`; a.click();
@@ -301,142 +306,166 @@ function App() {
 
   if (!currentUser) return (
     <div style={{ background:"#0a0a0a", minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:24, color:"#fff" }}>
-      <div style={{ fontSize:48, marginBottom:16 }}>👧</div>
-      <div style={{ fontWeight:700, fontSize:20, marginBottom:8 }}>Gastos de las Nenas</div>
-      <div style={{ color:"#555", fontSize:13, textAlign:"center" }}>Necesitás tu link personal para entrar.<br/>Pedíselo a Gus por WhatsApp.</div>
+      <div style={{ fontSize:56, marginBottom:16 }}>👧</div>
+      <div style={{ fontWeight:700, fontSize:24, marginBottom:8 }}>Gastos de las Nenas</div>
+      <div style={{ color:"#555", fontSize:16, textAlign:"center" }}>Necesitás tu link personal.<br/>Pedíselo a Gus por WhatsApp.</div>
     </div>
   );
 
+  // Shared modal style
+  const modalOverlay = { position:"fixed", inset:0, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:99, padding:20 };
+  const modalBox     = { background:"#1a1a1a", border:"1px solid #333", borderRadius:sz.radius.lg, padding:28, width:"100%", maxWidth:340 };
+
   return (
-    <div style={{ background:"#0a0a0a", minHeight:"100vh", color:"#f0f0f0", maxWidth:480, margin:"0 auto" }}>
+    <div style={{ background:"#0a0a0a", minHeight:"100vh", color:"#f0f0f0", maxWidth:520, margin:"0 auto" }}>
 
-      {toast&&<div style={{ position:"fixed", top:16, left:"50%", transform:"translateX(-50%)", background:toast.type==="err"?"#7f1d1d":"#14532d", color:"#fff", padding:"10px 20px", borderRadius:12, fontSize:13, zIndex:100, whiteSpace:"nowrap" }}>{toast.msg}</div>}
-      {driveStatus&&<div style={{ position:"fixed", top:56, left:"50%", transform:"translateX(-50%)", background:"#1e1b4b", color:"#a78bfa", padding:"8px 18px", borderRadius:12, fontSize:12, zIndex:100, border:"1px solid #4f46e5" }}>☁️ {driveStatus}</div>}
+      {toast&&<div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:toast.type==="err"?"#7f1d1d":"#14532d", color:"#fff", padding:"12px 24px", borderRadius:14, fontSize:15, zIndex:100, whiteSpace:"nowrap", boxShadow:"0 4px 20px rgba(0,0,0,0.5)" }}>{toast.msg}</div>}
+      {driveStatus&&<div style={{ position:"fixed", top:66, left:"50%", transform:"translateX(-50%)", background:"#1e1b4b", color:"#a78bfa", padding:"10px 20px", borderRadius:12, fontSize:14, zIndex:100, border:"1px solid #4f46e5" }}>☁️ {driveStatus}</div>}
 
-      {deleteConfirm&&(
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:99, padding:20 }}>
-          <div style={{ background:"#1a1a1a", border:"1px solid #333", borderRadius:16, padding:24, width:"100%", maxWidth:300, textAlign:"center" }}>
-            <div style={{ fontSize:32, marginBottom:8 }}>🗑️</div>
-            <div style={{ fontWeight:600, marginBottom:16 }}>¿Eliminar gasto?</div>
-            <div style={{ display:"flex", gap:10 }}>
-              <button onClick={()=>setDeleteConfirm(null)} style={{ flex:1, background:"#2a2a2a", border:"none", color:"#ccc", borderRadius:10, padding:10, cursor:"pointer" }}>Cancelar</button>
-              <button onClick={()=>{ setExpenses(prev=>prev.filter(e=>e.id!==deleteConfirm)); setDeleteConfirm(null); showToast("Eliminado"); }} style={{ flex:1, background:"#7f1d1d", border:"none", color:"#fff", borderRadius:10, padding:10, cursor:"pointer", fontWeight:600 }}>Eliminar</button>
+      {/* Duplicate confirm */}
+      {dupConfirm&&(
+        <div style={modalOverlay}>
+          <div style={{ ...modalBox, textAlign:"center" }}>
+            <div style={{ fontSize:40, marginBottom:12 }}>⚠️</div>
+            <div style={{ fontWeight:700, fontSize:18, marginBottom:10 }}>Posible duplicado</div>
+            <div style={{ color:"#999", fontSize:15, marginBottom:24 }}>Ya existe un gasto de <strong style={{color:"#fcd34d"}}>{fmt(dupConfirm.amt)}</strong> del <strong style={{color:"#fcd34d"}}>{dupConfirm.date}</strong>.<br/><br/>¿Querés cargarlo igual?</div>
+            <div style={{ display:"flex", gap:12 }}>
+              <button onClick={()=>setDupConfirm(null)} style={{ flex:1, background:"#2a2a2a", border:"none", color:"#ccc", borderRadius:12, padding:14, cursor:"pointer", fontSize:15 }}>Cancelar</button>
+              <button onClick={()=>{ setDupConfirm(null); saveExpense(true); }} style={{ flex:1, background:"#f59e0b", border:"none", color:"#000", borderRadius:12, padding:14, cursor:"pointer", fontSize:15, fontWeight:700 }}>Cargar igual</button>
             </div>
           </div>
         </div>
       )}
 
+      {/* Delete confirm */}
+      {deleteConfirm&&(
+        <div style={modalOverlay}>
+          <div style={{ ...modalBox, textAlign:"center" }}>
+            <div style={{ fontSize:40, marginBottom:12 }}>🗑️</div>
+            <div style={{ fontWeight:700, fontSize:18, marginBottom:24 }}>¿Eliminar gasto?</div>
+            <div style={{ display:"flex", gap:12 }}>
+              <button onClick={()=>setDeleteConfirm(null)} style={{ flex:1, background:"#2a2a2a", border:"none", color:"#ccc", borderRadius:12, padding:14, cursor:"pointer", fontSize:15 }}>Cancelar</button>
+              <button onClick={()=>{ setExpenses(prev=>prev.filter(e=>e.id!==deleteConfirm)); setDeleteConfirm(null); showToast("Eliminado"); }} style={{ flex:1, background:"#7f1d1d", border:"none", color:"#fff", borderRadius:12, padding:14, cursor:"pointer", fontSize:15, fontWeight:700 }}>Eliminar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment modal */}
       {showPayModal&&(
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:99 }}>
-          <div style={{ background:"#1a1a1a", border:"1px solid #333", borderRadius:"20px 20px 0 0", padding:24, width:"100%", maxWidth:480 }}>
-            <div style={{ fontWeight:700, fontSize:16, marginBottom:4 }}>💸 Registrar compensación</div>
-            <div style={{ color:"#888", fontSize:12, marginBottom:16 }}>{bal.debtor} → {bal.creditor} · {monthLabel(filterMonth)}</div>
+          <div style={{ background:"#1a1a1a", border:"1px solid #333", borderRadius:"24px 24px 0 0", padding:28, width:"100%", maxWidth:520 }}>
+            <div style={{ fontWeight:700, fontSize:18, marginBottom:6 }}>💸 Registrar compensación</div>
+            <div style={{ color:"#888", fontSize:14, marginBottom:18 }}>{bal.debtor} → {bal.creditor} · {monthLabel(filterMonth)}</div>
             <input type="file" accept="image/*,application/pdf" ref={payFileRef} style={{ display:"none" }}
-              onChange={e=>e.target.files[0]&&scanFile(e.target.files[0],p=>setPayForm(f=>({...f,amount:p.amount>0?p.amount.toString():f.amount,note:p.desc||f.note,date:p.date||f.date})),setPayScanLoading)} />
-            <button onClick={()=>payFileRef.current.click()} disabled={payScanLoading}
-              style={{ width:"100%", background:"#1e1b4b", border:"2px dashed #4f46e5", borderRadius:12, padding:12, color:"#a78bfa", fontSize:13, cursor:"pointer", marginBottom:14 }}>
-              {payScanLoading?"⏳ Escaneando...":"📷 Subir comprobante de transferencia"}
+              onChange={e=>e.target.files[0]&&scanFile(e.target.files[0],p=>setPayForm(f=>({...f,amount:p.amount>0?p.amount.toString():f.amount,note:p.desc||f.note,date:p.date||f.date})),setPayScanLoad)} />
+            <button onClick={()=>payFileRef.current.click()} disabled={payScanLoad}
+              style={{ width:"100%", background:"#1e1b4b", border:"2px dashed #4f46e5", borderRadius:14, padding:16, color:"#a78bfa", fontSize:15, cursor:"pointer", marginBottom:16 }}>
+              {payScanLoad?"⏳ Escaneando...":"📷 Subir comprobante de transferencia"}
             </button>
-            {[["Monto","number","amount","0"],["Nota","text","note","Ej: Transferencia Mercado Pago"]].map(([l,t,k,ph])=>(
-              <div key={k} style={{ marginBottom:10 }}>
-                <label style={{ fontSize:12, color:"#888", display:"block", marginBottom:4 }}>{l}</label>
+            {[["Monto","number","amount","0"],["Nota","text","note","Ej: Mercado Pago"]].map(([l,t,k,ph])=>(
+              <div key={k} style={{ marginBottom:12 }}>
+                <label style={{ fontSize:14, color:"#888", display:"block", marginBottom:6 }}>{l}</label>
                 <input type={t} value={payForm[k]} onChange={e=>setPayForm(f=>({...f,[k]:e.target.value}))} placeholder={ph}
-                  style={{ width:"100%", background:"#111", border:"1px solid #2a2a2a", borderRadius:10, padding:"10px 12px", color:"#fff", fontSize:13, boxSizing:"border-box" }} />
+                  style={{ width:"100%", background:"#111", border:"1px solid #2a2a2a", borderRadius:12, padding:"14px 16px", color:"#fff", fontSize:16, boxSizing:"border-box" }} />
               </div>
             ))}
-            <div style={{ marginBottom:16 }}>
-              <label style={{ fontSize:12, color:"#888", display:"block", marginBottom:4 }}>Fecha</label>
+            <div style={{ marginBottom:20 }}>
+              <label style={{ fontSize:14, color:"#888", display:"block", marginBottom:6 }}>Fecha</label>
               <input type="date" value={payForm.date} onChange={e=>setPayForm(f=>({...f,date:e.target.value}))}
-                style={{ width:"100%", background:"#111", border:"1px solid #2a2a2a", borderRadius:10, padding:"10px 12px", color:"#fff", fontSize:13, boxSizing:"border-box" }} />
+                style={{ width:"100%", background:"#111", border:"1px solid #2a2a2a", borderRadius:12, padding:"14px 16px", color:"#fff", fontSize:16, boxSizing:"border-box" }} />
             </div>
-            <div style={{ display:"flex", gap:10 }}>
-              <button onClick={()=>setShowPayModal(false)} style={{ flex:1, background:"#2a2a2a", border:"none", color:"#ccc", borderRadius:12, padding:12, cursor:"pointer" }}>Cancelar</button>
-              <button onClick={savePayment} style={{ flex:1, background:"linear-gradient(135deg,#6366f1,#ec4899)", border:"none", color:"#fff", borderRadius:12, padding:12, cursor:"pointer", fontWeight:700 }}>Confirmar</button>
+            <div style={{ display:"flex", gap:12 }}>
+              <button onClick={()=>setShowPayModal(false)} style={{ flex:1, background:"#2a2a2a", border:"none", color:"#ccc", borderRadius:14, padding:14, cursor:"pointer", fontSize:15 }}>Cancelar</button>
+              <button onClick={savePayment} style={{ flex:1, background:"linear-gradient(135deg,#6366f1,#ec4899)", border:"none", color:"#fff", borderRadius:14, padding:14, cursor:"pointer", fontSize:15, fontWeight:700 }}>Confirmar</button>
             </div>
           </div>
         </div>
       )}
 
+      {/* Links modal */}
       {showLinks&&(
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:99, padding:20 }}>
-          <div style={{ background:"#1a1a1a", border:"1px solid #333", borderRadius:16, padding:24, width:"100%", maxWidth:360 }}>
-            <div style={{ fontWeight:700, fontSize:16, marginBottom:16 }}>🔗 Links de acceso</div>
+        <div style={modalOverlay}>
+          <div style={modalBox}>
+            <div style={{ fontWeight:700, fontSize:18, marginBottom:18 }}>🔗 Links de acceso</div>
             {USERS.map(u=>(
-              <div key={u} style={{ background:"#111", border:`1px solid ${userColor(u)}`, borderRadius:12, padding:14, marginBottom:10 }}>
-                <div style={{ color:userColor(u), fontWeight:600, fontSize:13, marginBottom:6 }}>{u==="Gus"?"👨":"👩"} {u}</div>
-                <div style={{ color:"#aaa", fontSize:11, wordBreak:"break-all", marginBottom:8 }}>{baseURL}?user={u}</div>
+              <div key={u} style={{ background:"#111", border:`1px solid ${userColor(u)}`, borderRadius:14, padding:16, marginBottom:12 }}>
+                <div style={{ color:userColor(u), fontWeight:700, fontSize:15, marginBottom:8 }}>{u==="Gus"?"👨":"👩"} {u}</div>
+                <div style={{ color:"#aaa", fontSize:12, wordBreak:"break-all", marginBottom:10 }}>{baseURL}?user={u}</div>
                 <button onClick={()=>{ navigator.clipboard.writeText(`${baseURL}?user=${u}`); showToast(`Link de ${u} copiado ✓`); }}
-                  style={{ background:userBg(u), border:`1px solid ${userColor(u)}`, color:"#fff", borderRadius:8, padding:"6px 14px", fontSize:12, cursor:"pointer" }}>📋 Copiar</button>
+                  style={{ background:userBg(u), border:`1px solid ${userColor(u)}`, color:"#fff", borderRadius:10, padding:"8px 16px", fontSize:14, cursor:"pointer" }}>📋 Copiar</button>
               </div>
             ))}
-            <button onClick={()=>setShowLinks(false)} style={{ width:"100%", background:"#2a2a2a", border:"none", color:"#ccc", borderRadius:12, padding:12, cursor:"pointer", marginTop:4 }}>Cerrar</button>
+            <button onClick={()=>setShowLinks(false)} style={{ width:"100%", background:"#2a2a2a", border:"none", color:"#ccc", borderRadius:14, padding:14, cursor:"pointer", fontSize:15, marginTop:6 }}>Cerrar</button>
           </div>
         </div>
       )}
 
       {/* HEADER */}
-      <div style={{ background:"linear-gradient(135deg,#1e1b4b,#4a0724)", padding:"16px 16px 14px" }}>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-            <div style={{ width:32, height:32, borderRadius:"50%", background:userColor(currentUser), display:"flex", alignItems:"center", justifyContent:"center", fontSize:16 }}>{currentUser==="Gus"?"👨":"👩"}</div>
+      <div style={{ background:"linear-gradient(135deg,#1e1b4b,#4a0724)", padding:sz.headerPad }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ width:42, height:42, borderRadius:"50%", background:userColor(currentUser), display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>{currentUser==="Gus"?"👨":"👩"}</div>
             <div>
-              <div style={{ fontWeight:700, fontSize:15 }}>Hola, {currentUser} 👋</div>
-              <div style={{ color:"rgba(255,255,255,0.5)", fontSize:11 }}>Gastos de las nenas</div>
+              <div style={{ fontWeight:700, fontSize:18 }}>Hola, {currentUser} 👋</div>
+              <div style={{ color:"rgba(255,255,255,0.5)", fontSize:13 }}>Gastos de las nenas</div>
             </div>
           </div>
-          <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+          <div style={{ display:"flex", gap:8, alignItems:"center" }}>
             {!gToken
-              ? <button onClick={signInGoogle} disabled={gLoading} style={{ background:"#fff", border:"none", color:"#333", borderRadius:8, padding:"5px 10px", fontSize:11, cursor:"pointer", fontWeight:600 }}>{gLoading?"...":"☁️ Drive"}</button>
-              : <div style={{ background:"rgba(34,197,94,0.2)", border:"1px solid #22c55e", borderRadius:8, padding:"5px 10px", fontSize:11, color:"#86efac" }}>☁️ ✓</div>
+              ? <button onClick={()=>connectDrive(false)} disabled={gLoading} style={{ background:"#fff", border:"none", color:"#333", borderRadius:10, padding:"8px 12px", fontSize:13, cursor:"pointer", fontWeight:700 }}>{gLoading?"...":"☁️ Drive"}</button>
+              : <div style={{ background:"rgba(34,197,94,0.2)", border:"1px solid #22c55e", borderRadius:10, padding:"8px 12px", fontSize:13, color:"#86efac", fontWeight:600 }}>☁️ Drive ✓</div>
             }
-            <button onClick={()=>setShowLinks(true)} style={{ background:"rgba(255,255,255,0.1)", border:"none", color:"#fff", borderRadius:8, padding:"5px 8px", fontSize:11, cursor:"pointer" }}>🔗</button>
+            <button onClick={()=>setShowLinks(true)} style={{ background:"rgba(255,255,255,0.1)", border:"none", color:"#fff", borderRadius:10, padding:"8px 10px", fontSize:13, cursor:"pointer" }}>🔗</button>
             <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)}
-              style={{ background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)", color:"#fff", borderRadius:10, padding:"5px 8px", fontSize:11 }}>
+              style={{ background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)", color:"#fff", borderRadius:10, padding:"8px 10px", fontSize:13 }}>
               {allMonths.map(m=><option key={m} value={m} style={{ background:"#1a1a1a" }}>{monthLabel(m)}</option>)}
             </select>
           </div>
         </div>
 
         {/* Balance cards */}
-        <div style={{ display:"flex", gap:10, marginBottom:10 }}>
+        <div style={{ display:"flex", gap:12, marginBottom:12 }}>
           {USERS.map(w=>{ const amt=w==="Gus"?bal.gus:bal.bet, color=indColor(w); return (
-            <div key={w} style={{ flex:1, background:"rgba(255,255,255,0.07)", borderRadius:14, padding:"10px 12px", border:`1.5px solid ${color}` }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:2 }}>
-                <span style={{ fontSize:12, fontWeight:600, color:userColor(w) }}>{w}</span>
-                <span style={{ width:9, height:9, borderRadius:"50%", background:color, display:"inline-block" }} />
+            <div key={w} style={{ flex:1, background:"rgba(255,255,255,0.07)", borderRadius:16, padding:"14px 16px", border:`2px solid ${color}` }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+                <span style={{ fontSize:15, fontWeight:700, color:userColor(w) }}>{w}</span>
+                <span style={{ width:11, height:11, borderRadius:"50%", background:color, display:"inline-block" }} />
               </div>
-              <div style={{ fontSize:18, fontWeight:700 }}>{fmt(amt)}</div>
-              <div style={{ fontSize:10, color:"rgba(255,255,255,0.4)" }}>50% = {fmt(bal.half)}</div>
+              <div style={{ fontSize:22, fontWeight:700 }}>{fmt(amt)}</div>
+              <div style={{ fontSize:12, color:"rgba(255,255,255,0.4)", marginTop:2 }}>50% = {fmt(bal.half)}</div>
             </div>
           );})}
         </div>
 
-        {/* Nenas mini cards */}
-        <div style={{ display:"flex", gap:10, marginBottom:10 }}>
+        {/* Nenas cards */}
+        <div style={{ display:"flex", gap:12, marginBottom:12 }}>
           {[["Valen","🌟",ns.valenTotal],["Pili","💫",ns.piliTotal]].map(([n,icon,total])=>(
-            <div key={n} style={{ flex:1, background:"rgba(255,255,255,0.05)", borderRadius:12, padding:"8px 12px", border:`1px solid ${nenaColor(n)}33` }}>
-              <div style={{ fontSize:11, color:nenaColor(n), fontWeight:600 }}>{icon} {n}</div>
-              <div style={{ fontSize:16, fontWeight:700, marginTop:2 }}>{fmt(total)}</div>
+            <div key={n} style={{ flex:1, background:"rgba(255,255,255,0.05)", borderRadius:14, padding:"12px 14px", border:`1px solid ${nenaColor(n)}44` }}>
+              <div style={{ fontSize:14, color:nenaColor(n), fontWeight:700 }}>{icon} {n}</div>
+              <div style={{ fontSize:18, fontWeight:700, marginTop:4 }}>{fmt(total)}</div>
             </div>
           ))}
         </div>
 
-        <div style={{ background:bal.balanced?"rgba(34,197,94,0.15)":"rgba(239,68,68,0.15)", border:`1px solid ${bal.balanced?"#22c55e":"#ef4444"}`, borderRadius:12, padding:"8px 12px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-            <span>{bal.balanced?"✅":"⚠️"}</span>
-            <span style={{ fontSize:11, color:bal.balanced?"#86efac":"#fca5a5" }}>
+        {/* Status */}
+        <div style={{ background:bal.balanced?"rgba(34,197,94,0.15)":"rgba(239,68,68,0.15)", border:`1px solid ${bal.balanced?"#22c55e":"#ef4444"}`, borderRadius:14, padding:"12px 14px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <span style={{ fontSize:18 }}>{bal.balanced?"✅":"⚠️"}</span>
+            <span style={{ fontSize:14, color:bal.balanced?"#86efac":"#fca5a5" }}>
               {bal.balanced?`Parejos · dif. ${fmt(bal.compensation)}`:`${bal.debtor} debe ${fmt(bal.remaining)} a ${bal.creditor}`}
             </span>
           </div>
           {!bal.balanced&&!bal.settled&&(
             <button onClick={()=>{ setPayForm(f=>({...f,amount:bal.remaining.toString(),month:filterMonth})); setShowPayModal(true); }}
-              style={{ background:"#6366f1", border:"none", color:"#fff", borderRadius:8, padding:"4px 10px", fontSize:11, cursor:"pointer", fontWeight:600 }}>Pagar</button>
+              style={{ background:"#6366f1", border:"none", color:"#fff", borderRadius:10, padding:"8px 14px", fontSize:13, cursor:"pointer", fontWeight:700 }}>Pagar</button>
           )}
         </div>
+
         {(accDebt.debtGus>0||accDebt.debtBet>0)&&(
-          <div style={{ marginTop:8, background:"rgba(251,191,36,0.1)", border:"1px solid #f59e0b", borderRadius:12, padding:"8px 12px", display:"flex", alignItems:"center", gap:6 }}>
-            <span>📊</span>
-            <span style={{ fontSize:11, color:"#fcd34d" }}>Deuda acumulada: {accDebt.debtGus>0?`Gus debe ${fmt(accDebt.debtGus)}`:`Betiana debe ${fmt(accDebt.debtBet)}`}</span>
+          <div style={{ marginTop:10, background:"rgba(251,191,36,0.1)", border:"1px solid #f59e0b", borderRadius:14, padding:"10px 14px", display:"flex", alignItems:"center", gap:8 }}>
+            <span style={{ fontSize:16 }}>📊</span>
+            <span style={{ fontSize:14, color:"#fcd34d" }}>Deuda acumulada: {accDebt.debtGus>0?`Gus debe ${fmt(accDebt.debtGus)}`:`Betiana debe ${fmt(accDebt.debtBet)}`}</span>
           </div>
         )}
       </div>
@@ -445,40 +474,40 @@ function App() {
       <div style={{ display:"flex", background:"#111", borderBottom:"1px solid #222" }}>
         {[["dashboard","🏠","Inicio"],["history","📋","Historial"],["summary","📊","Resumen"]].map(([v,icon,label])=>(
           <button key={v} onClick={()=>setView(v)}
-            style={{ flex:1, background:"none", border:"none", padding:"10px 4px", color:view===v?"#a78bfa":"#666", fontSize:10, cursor:"pointer", borderBottom:view===v?"2px solid #a78bfa":"2px solid transparent", display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
-            <span style={{ fontSize:17 }}>{icon}</span>{label}
+            style={{ flex:1, background:"none", border:"none", padding:"14px 4px", color:view===v?"#a78bfa":"#666", fontSize:12, cursor:"pointer", borderBottom:view===v?"3px solid #a78bfa":"3px solid transparent", display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+            <span style={{ fontSize:20 }}>{icon}</span>{label}
           </button>
         ))}
       </div>
 
-      <div style={{ padding:16, paddingBottom:90 }}>
+      <div style={{ padding:18, paddingBottom:100 }}>
 
         {/* DASHBOARD */}
         {view==="dashboard"&&(
           <div>
-            <div style={{ fontWeight:600, fontSize:14, marginBottom:14 }}>Últimos gastos · {monthLabel(filterMonth)}</div>
+            <div style={{ fontWeight:700, fontSize:16, marginBottom:16 }}>Últimos gastos · {monthLabel(filterMonth)}</div>
             {monthExp(filterMonth).length===0
-              ? <div style={{ textAlign:"center", padding:"40px 0", color:"#555" }}>No hay gastos este mes</div>
+              ? <div style={{ textAlign:"center", padding:"50px 0", color:"#555", fontSize:16 }}>No hay gastos este mes</div>
               : monthExp(filterMonth).map(e=>(
-                <div key={e.id} style={{ background:"#161616", border:"1px solid #252525", borderRadius:14, padding:"12px 14px", marginBottom:10, display:"flex", alignItems:"center", gap:12 }}>
-                  <div style={{ fontSize:22 }}>{catEmoji(e.category)}</div>
+                <div key={e.id} style={{ background:"#161616", border:"1px solid #252525", borderRadius:18, padding:"14px 16px", marginBottom:12, display:"flex", alignItems:"center", gap:14 }}>
+                  <div style={{ fontSize:28 }}>{catEmoji(e.category)}</div>
                   <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontWeight:600, fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.desc}</div>
-                    <div style={{ fontSize:11, color:"#666", marginTop:2, display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
+                    <div style={{ fontWeight:600, fontSize:15, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.desc}</div>
+                    <div style={{ fontSize:13, color:"#666", marginTop:4, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
                       <span>{e.date}</span>
-                      <span style={{ color:userColor(e.who) }}>{e.who}</span>
-                      {e.nena&&<span style={{ background:nenaBg(e.nena), color:nenaColor(e.nena), borderRadius:10, padding:"1px 7px", fontSize:10, fontWeight:600 }}>{e.nena}</span>}
-                      {gallery[e.id]&&<a href={gallery[e.id].link} target="_blank" rel="noreferrer" style={{ color:"#a78bfa", fontSize:10 }}>☁️ Ver</a>}
+                      <span style={{ color:userColor(e.who), fontWeight:600 }}>{e.who}</span>
+                      {e.nena&&<span style={{ background:nenaBg(e.nena), color:nenaColor(e.nena), borderRadius:10, padding:"2px 8px", fontSize:12, fontWeight:700 }}>{e.nena}</span>}
+                      {gallery[e.id]&&<a href={gallery[e.id].link} target="_blank" rel="noreferrer" style={{ color:"#a78bfa", fontSize:12 }}>☁️ Ver</a>}
                     </div>
                   </div>
                   <div style={{ textAlign:"right" }}>
-                    <div style={{ fontWeight:700, fontSize:15 }}>{fmt(e.amount)}</div>
+                    <div style={{ fontWeight:700, fontSize:17 }}>{fmt(e.amount)}</div>
                     {e.who===currentUser&&(
-                      <div style={{ display:"flex", gap:5, marginTop:4, justifyContent:"flex-end" }}>
+                      <div style={{ display:"flex", gap:6, marginTop:6, justifyContent:"flex-end" }}>
                         <button onClick={()=>{ setForm({who:e.who,amount:e.amount.toString(),category:e.category,nena:e.nena||"Valen",desc:e.desc,date:e.date}); setEditing(e.id); setView("form"); }}
-                          style={{ background:"#252525", border:"none", color:"#a78bfa", borderRadius:8, padding:"3px 7px", fontSize:11, cursor:"pointer" }}>✏️</button>
+                          style={{ background:"#252525", border:"none", color:"#a78bfa", borderRadius:10, padding:"5px 10px", fontSize:14, cursor:"pointer" }}>✏️</button>
                         <button onClick={()=>setDeleteConfirm(e.id)}
-                          style={{ background:"#252525", border:"none", color:"#f87171", borderRadius:8, padding:"3px 7px", fontSize:11, cursor:"pointer" }}>🗑️</button>
+                          style={{ background:"#252525", border:"none", color:"#f87171", borderRadius:10, padding:"5px 10px", fontSize:14, cursor:"pointer" }}>🗑️</button>
                       </div>
                     )}
                   </div>
@@ -490,46 +519,46 @@ function App() {
         {/* HISTORY */}
         {view==="history"&&(
           <div>
-            <div style={{ display:"flex", gap:6, marginBottom:8, overflowX:"auto", paddingBottom:4 }}>
-              <button onClick={()=>setFilterCat("all")} style={{ background:filterCat==="all"?"#6366f1":"#1e1e1e", border:"none", color:"#fff", borderRadius:20, padding:"5px 12px", fontSize:11, cursor:"pointer", whiteSpace:"nowrap" }}>Todos</button>
+            <div style={{ display:"flex", gap:8, marginBottom:10, overflowX:"auto", paddingBottom:4 }}>
+              <button onClick={()=>setFilterCat("all")} style={{ background:filterCat==="all"?"#6366f1":"#1e1e1e", border:"none", color:"#fff", borderRadius:20, padding:"7px 14px", fontSize:13, cursor:"pointer", whiteSpace:"nowrap" }}>Todos</button>
               {CATEGORIES.map(c=>(
                 <button key={c.id} onClick={()=>setFilterCat(c.id)}
-                  style={{ background:filterCat===c.id?"#6366f1":"#1e1e1e", border:"none", color:"#fff", borderRadius:20, padding:"5px 12px", fontSize:11, cursor:"pointer", whiteSpace:"nowrap" }}>
+                  style={{ background:filterCat===c.id?"#6366f1":"#1e1e1e", border:"none", color:"#fff", borderRadius:20, padding:"7px 14px", fontSize:13, cursor:"pointer", whiteSpace:"nowrap" }}>
                   {c.emoji} {c.label.split("/")[0].trim()}
                 </button>
               ))}
             </div>
-            <div style={{ display:"flex", gap:6, marginBottom:14, overflowX:"auto", paddingBottom:4 }}>
-              <button onClick={()=>setFilterNena("all")} style={{ background:filterNena==="all"?"#a78bfa":"#1e1e1e", border:"none", color:"#fff", borderRadius:20, padding:"5px 12px", fontSize:11, cursor:"pointer", whiteSpace:"nowrap" }}>👧 Todas</button>
+            <div style={{ display:"flex", gap:8, marginBottom:16, overflowX:"auto", paddingBottom:4 }}>
+              <button onClick={()=>setFilterNena("all")} style={{ background:filterNena==="all"?"#a78bfa":"#1e1e1e", border:"none", color:"#fff", borderRadius:20, padding:"7px 14px", fontSize:13, cursor:"pointer", whiteSpace:"nowrap" }}>👧 Todas</button>
               {NENAS.map(n=>(
                 <button key={n} onClick={()=>setFilterNena(n)}
-                  style={{ background:filterNena===n?nenaColor(n):"#1e1e1e", border:"none", color:"#fff", borderRadius:20, padding:"5px 12px", fontSize:11, cursor:"pointer", whiteSpace:"nowrap" }}>
+                  style={{ background:filterNena===n?nenaColor(n):"#1e1e1e", border:"none", color:"#fff", borderRadius:20, padding:"7px 14px", fontSize:13, cursor:"pointer", whiteSpace:"nowrap" }}>
                   {n==="Valen"?"🌟":n==="Pili"?"💫":"🤝"} {n}
                 </button>
               ))}
             </div>
             {filtered.length===0
-              ? <div style={{ textAlign:"center", padding:"40px 0", color:"#555" }}>No hay gastos</div>
+              ? <div style={{ textAlign:"center", padding:"50px 0", color:"#555", fontSize:16 }}>No hay gastos</div>
               : filtered.map(e=>(
-                <div key={e.id} style={{ background:"#161616", border:"1px solid #252525", borderRadius:14, padding:"12px 14px", marginBottom:10, display:"flex", alignItems:"center", gap:12 }}>
-                  <div style={{ fontSize:22 }}>{catEmoji(e.category)}</div>
+                <div key={e.id} style={{ background:"#161616", border:"1px solid #252525", borderRadius:18, padding:"14px 16px", marginBottom:12, display:"flex", alignItems:"center", gap:14 }}>
+                  <div style={{ fontSize:26 }}>{catEmoji(e.category)}</div>
                   <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontWeight:600, fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.desc}</div>
-                    <div style={{ fontSize:11, color:"#666", marginTop:2, display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
-                      <span>{e.date}</span><span style={{ color:userColor(e.who) }}>{e.who}</span>
-                      {e.nena&&<span style={{ background:nenaBg(e.nena), color:nenaColor(e.nena), borderRadius:10, padding:"1px 7px", fontSize:10, fontWeight:600 }}>{e.nena}</span>}
+                    <div style={{ fontWeight:600, fontSize:15, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.desc}</div>
+                    <div style={{ fontSize:13, color:"#666", marginTop:4, display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+                      <span>{e.date}</span><span style={{ color:userColor(e.who), fontWeight:600 }}>{e.who}</span>
+                      {e.nena&&<span style={{ background:nenaBg(e.nena), color:nenaColor(e.nena), borderRadius:10, padding:"2px 8px", fontSize:12, fontWeight:700 }}>{e.nena}</span>}
                       <span style={{ color:"#555" }}>{catLabel(e.category)}</span>
-                      {gallery[e.id]&&<a href={gallery[e.id].link} target="_blank" rel="noreferrer" style={{ color:"#a78bfa", fontSize:10 }}>☁️</a>}
+                      {gallery[e.id]&&<a href={gallery[e.id].link} target="_blank" rel="noreferrer" style={{ color:"#a78bfa", fontSize:12 }}>☁️</a>}
                     </div>
                   </div>
                   <div style={{ textAlign:"right" }}>
-                    <div style={{ fontWeight:700, fontSize:14 }}>{fmt(e.amount)}</div>
+                    <div style={{ fontWeight:700, fontSize:16 }}>{fmt(e.amount)}</div>
                     {e.who===currentUser&&(
-                      <div style={{ display:"flex", gap:5, marginTop:4, justifyContent:"flex-end" }}>
+                      <div style={{ display:"flex", gap:6, marginTop:6, justifyContent:"flex-end" }}>
                         <button onClick={()=>{ setForm({who:e.who,amount:e.amount.toString(),category:e.category,nena:e.nena||"Valen",desc:e.desc,date:e.date}); setEditing(e.id); setView("form"); }}
-                          style={{ background:"#252525", border:"none", color:"#a78bfa", borderRadius:8, padding:"3px 7px", fontSize:11, cursor:"pointer" }}>✏️</button>
+                          style={{ background:"#252525", border:"none", color:"#a78bfa", borderRadius:10, padding:"5px 10px", fontSize:14, cursor:"pointer" }}>✏️</button>
                         <button onClick={()=>setDeleteConfirm(e.id)}
-                          style={{ background:"#252525", border:"none", color:"#f87171", borderRadius:8, padding:"3px 7px", fontSize:11, cursor:"pointer" }}>🗑️</button>
+                          style={{ background:"#252525", border:"none", color:"#f87171", borderRadius:10, padding:"5px 10px", fontSize:14, cursor:"pointer" }}>🗑️</button>
                       </div>
                     )}
                   </div>
@@ -541,89 +570,85 @@ function App() {
         {/* SUMMARY */}
         {view==="summary"&&(
           <div>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
-              <div style={{ fontWeight:600, fontSize:14 }}>Resumen · {monthLabel(filterMonth)}</div>
-              <button onClick={exportReport} style={{ background:"linear-gradient(135deg,#6366f1,#ec4899)", border:"none", color:"#fff", borderRadius:10, padding:"6px 14px", fontSize:11, cursor:"pointer", fontWeight:600 }}>
-                {gToken?"☁️ Exportar reporte":"📥 Descargar reporte"}
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+              <div style={{ fontWeight:700, fontSize:16 }}>Resumen · {monthLabel(filterMonth)}</div>
+              <button onClick={exportReport} style={{ background:"linear-gradient(135deg,#6366f1,#ec4899)", border:"none", color:"#fff", borderRadius:12, padding:"10px 16px", fontSize:14, cursor:"pointer", fontWeight:700 }}>
+                {gToken?"☁️ Exportar":"📥 Descargar"}
               </button>
             </div>
-
-            {/* Balance */}
-            <div style={{ background:"#161616", border:"1px solid #252525", borderRadius:14, padding:16, marginBottom:12 }}>
+            <div style={{ background:"#161616", border:"1px solid #252525", borderRadius:18, padding:18, marginBottom:14 }}>
               {[["Total del mes",fmt(bal.total)],["50% cada uno",fmt(bal.half)]].map(([l,v])=>(
-                <div key={l} style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}>
-                  <span style={{ color:"#888", fontSize:13 }}>{l}</span><span style={{ fontWeight:600 }}>{v}</span>
+                <div key={l} style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}>
+                  <span style={{ color:"#888", fontSize:15 }}>{l}</span><span style={{ fontWeight:700, fontSize:15 }}>{v}</span>
                 </div>
               ))}
-              <div style={{ height:1, background:"#252525", margin:"10px 0" }} />
+              <div style={{ height:1, background:"#252525", margin:"12px 0" }} />
               {USERS.map(w=>{ const amt=w==="Gus"?bal.gus:bal.bet, diff=amt-bal.half; return (
-                <div key={w} style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
-                  <span style={{ color:userColor(w), fontSize:13, fontWeight:600 }}>{w} gastó</span>
-                  <div><span style={{ fontWeight:700 }}>{fmt(amt)}</span>
-                    <span style={{ fontSize:11, marginLeft:8, color:diff>TOLERANCE?"#ef4444":diff<-TOLERANCE?"#22c55e":"#888" }}>{diff>=0?`+${fmt(diff)}`:fmt(diff)}</span>
+                <div key={w} style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}>
+                  <span style={{ color:userColor(w), fontSize:15, fontWeight:700 }}>{w} gastó</span>
+                  <div><span style={{ fontWeight:700, fontSize:15 }}>{fmt(amt)}</span>
+                    <span style={{ fontSize:13, marginLeft:10, color:diff>TOLERANCE?"#ef4444":diff<-TOLERANCE?"#22c55e":"#888" }}>{diff>=0?`+${fmt(diff)}`:fmt(diff)}</span>
                   </div>
                 </div>
               );})}
             </div>
 
             {/* Nenas */}
-            <div style={{ fontWeight:600, fontSize:13, marginBottom:10 }}>👧 Gastos por niña</div>
-            <div style={{ display:"flex", gap:10, marginBottom:12 }}>
+            <div style={{ fontWeight:700, fontSize:15, marginBottom:12 }}>👧 Gastos por niña</div>
+            <div style={{ display:"flex", gap:12, marginBottom:14 }}>
               {[["Valen","🌟",ns.valenTotal,ns.valenCats],["Pili","💫",ns.piliTotal,ns.piliCats]].map(([n,icon,total,cats])=>(
-                <div key={n} style={{ flex:1, background:"#161616", border:`1px solid ${nenaColor(n)}44`, borderRadius:14, padding:14 }}>
-                  <div style={{ color:nenaColor(n), fontWeight:700, fontSize:13, marginBottom:6 }}>{icon} {n}</div>
-                  <div style={{ fontSize:20, fontWeight:700, marginBottom:8 }}>{fmt(total)}</div>
+                <div key={n} style={{ flex:1, background:"#161616", border:`1px solid ${nenaColor(n)}44`, borderRadius:16, padding:16 }}>
+                  <div style={{ color:nenaColor(n), fontWeight:700, fontSize:15, marginBottom:8 }}>{icon} {n}</div>
+                  <div style={{ fontSize:22, fontWeight:700, marginBottom:10 }}>{fmt(total)}</div>
                   {cats.map(c=>(
-                    <div key={c.id} style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"#888", marginBottom:4 }}>
+                    <div key={c.id} style={{ display:"flex", justifyContent:"space-between", fontSize:13, color:"#888", marginBottom:6 }}>
                       <span>{c.emoji} {c.label.split("/")[0].trim()}</span>
-                      <span style={{ color:"#ccc" }}>{fmt(c.total)}</span>
+                      <span style={{ color:"#ccc", fontWeight:600 }}>{fmt(c.total)}</span>
                     </div>
                   ))}
-                  {cats.length===0&&<div style={{ fontSize:11, color:"#555" }}>Sin gastos</div>}
+                  {cats.length===0&&<div style={{ fontSize:13, color:"#555" }}>Sin gastos</div>}
                 </div>
               ))}
             </div>
 
-            {/* Estado compensación */}
-            <div style={{ background:bal.settled?"rgba(34,197,94,0.1)":"rgba(239,68,68,0.1)", border:`1px solid ${bal.settled?"#22c55e":"#ef4444"}`, borderRadius:14, padding:16, marginBottom:12, textAlign:"center" }}>
+            <div style={{ background:bal.settled?"rgba(34,197,94,0.1)":"rgba(239,68,68,0.1)", border:`1px solid ${bal.settled?"#22c55e":"#ef4444"}`, borderRadius:18, padding:18, marginBottom:14, textAlign:"center" }}>
               {bal.settled
-                ? <><div style={{ fontSize:28 }}>✅</div><div style={{ fontWeight:700, fontSize:14, color:"#86efac", marginTop:6 }}>¡Compensado!</div></>
-                : <><div style={{ fontSize:28 }}>💸</div>
-                  <div style={{ fontWeight:700, fontSize:14, color:"#fca5a5", marginTop:6 }}>{bal.debtor} debe {fmt(bal.remaining)} a {bal.creditor}</div>
-                  {bal.paid>0&&<div style={{ color:"#888", fontSize:12, marginTop:4 }}>Ya pagó {fmt(bal.paid)} de {fmt(bal.compensation)}</div>}
+                ? <><div style={{ fontSize:36 }}>✅</div><div style={{ fontWeight:700, fontSize:16, color:"#86efac", marginTop:8 }}>¡Compensado!</div></>
+                : <><div style={{ fontSize:36 }}>💸</div>
+                  <div style={{ fontWeight:700, fontSize:16, color:"#fca5a5", marginTop:8 }}>{bal.debtor} debe {fmt(bal.remaining)} a {bal.creditor}</div>
+                  {bal.paid>0&&<div style={{ color:"#888", fontSize:14, marginTop:6 }}>Ya pagó {fmt(bal.paid)} de {fmt(bal.compensation)}</div>}
                   <button onClick={()=>{ setPayForm(f=>({...f,amount:bal.remaining.toString(),month:filterMonth})); setShowPayModal(true); }}
-                    style={{ marginTop:12, background:"linear-gradient(135deg,#6366f1,#ec4899)", border:"none", color:"#fff", borderRadius:10, padding:"8px 20px", fontSize:13, fontWeight:700, cursor:"pointer" }}>
+                    style={{ marginTop:14, background:"linear-gradient(135deg,#6366f1,#ec4899)", border:"none", color:"#fff", borderRadius:12, padding:"12px 24px", fontSize:15, fontWeight:700, cursor:"pointer" }}>
                     💸 Registrar pago
                   </button>
                 </>}
             </div>
 
             {(accDebt.debtGus>0||accDebt.debtBet>0)&&(
-              <div style={{ background:"rgba(251,191,36,0.08)", border:"1px solid #f59e0b", borderRadius:14, padding:14, marginBottom:12 }}>
-                <div style={{ fontWeight:600, fontSize:13, color:"#fcd34d", marginBottom:4 }}>📊 Deuda acumulada</div>
-                {accDebt.debtGus>0&&<div style={{ fontSize:13, color:"#fca5a5" }}>Gus debe {fmt(accDebt.debtGus)}</div>}
-                {accDebt.debtBet>0&&<div style={{ fontSize:13, color:"#fca5a5" }}>Betiana debe {fmt(accDebt.debtBet)}</div>}
+              <div style={{ background:"rgba(251,191,36,0.08)", border:"1px solid #f59e0b", borderRadius:16, padding:16, marginBottom:14 }}>
+                <div style={{ fontWeight:700, fontSize:15, color:"#fcd34d", marginBottom:6 }}>📊 Deuda acumulada</div>
+                {accDebt.debtGus>0&&<div style={{ fontSize:15, color:"#fca5a5" }}>Gus debe {fmt(accDebt.debtGus)}</div>}
+                {accDebt.debtBet>0&&<div style={{ fontSize:15, color:"#fca5a5" }}>Betiana debe {fmt(accDebt.debtBet)}</div>}
               </div>
             )}
 
             {monthPays(filterMonth).length>0&&(
-              <div style={{ marginBottom:12 }}>
-                <div style={{ fontWeight:600, fontSize:13, marginBottom:8 }}>Pagos registrados</div>
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontWeight:700, fontSize:15, marginBottom:10 }}>Pagos registrados</div>
                 {monthPays(filterMonth).map(p=>(
-                  <div key={p.id} style={{ background:"#161616", border:"1px solid #1a3a1a", borderRadius:12, padding:"10px 14px", marginBottom:8, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                    <div><div style={{ fontSize:13, fontWeight:600 }}>💸 {p.note||"Transferencia"}</div><div style={{ fontSize:11, color:"#666" }}>{p.date}</div></div>
-                    <div style={{ fontWeight:700, color:"#86efac" }}>{fmt(p.amount)}</div>
+                  <div key={p.id} style={{ background:"#161616", border:"1px solid #1a3a1a", borderRadius:14, padding:"12px 16px", marginBottom:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                    <div><div style={{ fontSize:15, fontWeight:600 }}>💸 {p.note||"Transferencia"}</div><div style={{ fontSize:13, color:"#666", marginTop:4 }}>{p.date}</div></div>
+                    <div style={{ fontWeight:700, fontSize:16, color:"#86efac" }}>{fmt(p.amount)}</div>
                   </div>
                 ))}
               </div>
             )}
 
-            {/* Por categoría */}
-            <div style={{ fontWeight:600, fontSize:13, marginBottom:10 }}>Por categoría</div>
+            <div style={{ fontWeight:700, fontSize:15, marginBottom:12 }}>Por categoría</div>
             {CATEGORIES.map(cat=>{ const total=monthExp(filterMonth).filter(e=>e.category===cat.id).reduce((s,e)=>s+e.amount,0); if(!total) return null; const pct=bal.total>0?(total/bal.total)*100:0; return (
-              <div key={cat.id} style={{ background:"#161616", border:"1px solid #252525", borderRadius:12, padding:"10px 14px", marginBottom:8 }}>
-                <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}><span style={{ fontSize:13 }}>{cat.emoji} {cat.label}</span><span style={{ fontWeight:600 }}>{fmt(total)}</span></div>
-                <div style={{ background:"#252525", borderRadius:4, height:4 }}><div style={{ background:"#6366f1", height:4, borderRadius:4, width:`${pct}%` }} /></div>
+              <div key={cat.id} style={{ background:"#161616", border:"1px solid #252525", borderRadius:14, padding:"12px 16px", marginBottom:10 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}><span style={{ fontSize:15 }}>{cat.emoji} {cat.label}</span><span style={{ fontWeight:700, fontSize:15 }}>{fmt(total)}</span></div>
+                <div style={{ background:"#252525", borderRadius:6, height:6 }}><div style={{ background:"#6366f1", height:6, borderRadius:6, width:`${pct}%` }} /></div>
               </div>
             );})}
           </div>
@@ -632,16 +657,16 @@ function App() {
         {/* FORM */}
         {view==="form"&&(
           <div>
-            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:20 }}>
-              <button onClick={()=>{ resetForm(); setView("dashboard"); }} style={{ background:"#1e1e1e", border:"none", color:"#ccc", borderRadius:10, padding:"8px 12px", cursor:"pointer", fontSize:13 }}>← Volver</button>
-              <div style={{ fontWeight:600, fontSize:15 }}>{editing?"Editar gasto":"Nuevo gasto"}</div>
+            <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:24 }}>
+              <button onClick={()=>{ resetForm(); setView("dashboard"); }} style={{ background:"#1e1e1e", border:"none", color:"#ccc", borderRadius:12, padding:"10px 16px", cursor:"pointer", fontSize:15 }}>← Volver</button>
+              <div style={{ fontWeight:700, fontSize:18 }}>{editing?"Editar gasto":"Nuevo gasto"}</div>
             </div>
 
-            <div style={{ background:userBg(currentUser), border:`2px solid ${userColor(currentUser)}`, borderRadius:12, padding:"10px 14px", marginBottom:14, display:"flex", alignItems:"center", gap:8 }}>
-              <span style={{ fontSize:20 }}>{currentUser==="Gus"?"👨":"👩"}</span>
+            <div style={{ background:userBg(currentUser), border:`2px solid ${userColor(currentUser)}`, borderRadius:14, padding:"12px 16px", marginBottom:18, display:"flex", alignItems:"center", gap:12 }}>
+              <span style={{ fontSize:26 }}>{currentUser==="Gus"?"👨":"👩"}</span>
               <div>
-                <div style={{ fontSize:11, color:"rgba(255,255,255,0.5)" }}>Cargando como</div>
-                <div style={{ fontWeight:700, color:userColor(currentUser), fontSize:15 }}>{currentUser}</div>
+                <div style={{ fontSize:13, color:"rgba(255,255,255,0.5)" }}>Cargando como</div>
+                <div style={{ fontWeight:700, color:userColor(currentUser), fontSize:18 }}>{currentUser}</div>
               </div>
             </div>
 
@@ -650,53 +675,57 @@ function App() {
                 <input type="file" accept="image/*,application/pdf" ref={fileRef} style={{ display:"none" }}
                   onChange={e=>{ if(!e.target.files[0]) return; const f=e.target.files[0]; scanFile(f,p=>setForm(prev=>({...prev,amount:p.amount>0?p.amount.toString():prev.amount,desc:p.desc||prev.desc,date:p.date||prev.date,category:p.category||prev.category,_pendingFile:f})),setScanLoading); }} />
                 <button onClick={()=>fileRef.current.click()} disabled={scanLoading}
-                  style={{ width:"100%", background:"#1e1b4b", border:"2px dashed #4f46e5", borderRadius:14, padding:14, color:"#a78bfa", fontSize:13, cursor:"pointer", marginBottom:16, display:"flex", alignItems:"center", justifyContent:"center", gap:8, boxSizing:"border-box" }}>
+                  style={{ width:"100%", background:"#1e1b4b", border:"2px dashed #4f46e5", borderRadius:16, padding:18, color:"#a78bfa", fontSize:15, cursor:"pointer", marginBottom:20, display:"flex", alignItems:"center", justifyContent:"center", gap:10, boxSizing:"border-box" }}>
                   {scanLoading?"⏳ Escaneando...":`📷 Subir foto, captura o PDF${gToken?" (→ Drive)":""}`}
                 </button>
               </>
             )}
 
             {/* Selector niña */}
-            <div style={{ marginBottom:14 }}>
-              <label style={{ fontSize:12, color:"#888", display:"block", marginBottom:8 }}>¿Para quién es el gasto?</label>
-              <div style={{ display:"flex", gap:8 }}>
+            <div style={{ marginBottom:18 }}>
+              <label style={{ fontSize:15, color:"#888", display:"block", marginBottom:10 }}>¿Para quién es el gasto?</label>
+              <div style={{ display:"flex", gap:10 }}>
                 {NENAS.map(n=>(
                   <button key={n} onClick={()=>setForm(f=>({...f,nena:n}))}
-                    style={{ flex:1, background:form.nena===n?nenaBg(n):"#1e1e1e", border:`2px solid ${form.nena===n?nenaColor(n):"#2a2a2a"}`, color:form.nena===n?nenaColor(n):"#888", borderRadius:12, padding:"10px 6px", fontSize:13, fontWeight:600, cursor:"pointer" }}>
-                    {n==="Valen"?"🌟":n==="Pili"?"💫":"🤝"}<br/><span style={{ fontSize:11 }}>{n}</span>
+                    style={{ flex:1, background:form.nena===n?nenaBg(n):"#1e1e1e", border:`2px solid ${form.nena===n?nenaColor(n):"#2a2a2a"}`, color:form.nena===n?nenaColor(n):"#888", borderRadius:14, padding:"14px 6px", fontSize:14, fontWeight:700, cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+                    <span style={{ fontSize:22 }}>{n==="Valen"?"🌟":n==="Pili"?"💫":"🤝"}</span>{n}
                   </button>
                 ))}
               </div>
             </div>
 
-            {[["Monto (ARS)","number","amount","0","18px"],["Descripción","text","desc","Ej: Cuota del colegio...","14px"]].map(([label,type,key,ph,fs])=>(
-              <div key={key} style={{ marginBottom:12 }}>
-                <label style={{ fontSize:12, color:"#888", display:"block", marginBottom:6 }}>{label}</label>
-                <input type={type} value={form[key]} onChange={e=>setForm(f=>({...f,[key]:e.target.value}))} placeholder={ph}
-                  style={{ width:"100%", background:"#1a1a1a", border:"1px solid #2a2a2a", borderRadius:12, padding:"12px 14px", color:"#fff", fontSize:fs, boxSizing:"border-box" }} />
-              </div>
-            ))}
+            <div style={{ marginBottom:16 }}>
+              <label style={{ fontSize:15, color:"#888", display:"block", marginBottom:8 }}>Monto (ARS)</label>
+              <input type="number" value={form.amount} onChange={e=>setForm(f=>({...f,amount:e.target.value}))} placeholder="0"
+                style={{ width:"100%", background:"#1a1a1a", border:"1px solid #2a2a2a", borderRadius:14, padding:"16px 18px", color:"#fff", fontSize:24, fontWeight:700, boxSizing:"border-box" }} />
+            </div>
 
-            <div style={{ marginBottom:12 }}>
-              <label style={{ fontSize:12, color:"#888", display:"block", marginBottom:6 }}>Categoría</label>
-              <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+            <div style={{ marginBottom:16 }}>
+              <label style={{ fontSize:15, color:"#888", display:"block", marginBottom:8 }}>Descripción</label>
+              <input value={form.desc} onChange={e=>setForm(f=>({...f,desc:e.target.value}))} placeholder="Ej: Cuota del colegio..."
+                style={{ width:"100%", background:"#1a1a1a", border:"1px solid #2a2a2a", borderRadius:14, padding:"16px 18px", color:"#fff", fontSize:16, boxSizing:"border-box" }} />
+            </div>
+
+            <div style={{ marginBottom:16 }}>
+              <label style={{ fontSize:15, color:"#888", display:"block", marginBottom:10 }}>Categoría</label>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:10 }}>
                 {CATEGORIES.map(c=>(
                   <button key={c.id} onClick={()=>setForm(f=>({...f,category:c.id}))}
-                    style={{ background:form.category===c.id?"#4f46e5":"#1e1e1e", border:`1px solid ${form.category===c.id?"#6366f1":"#2a2a2a"}`, color:"#fff", borderRadius:20, padding:"6px 12px", fontSize:12, cursor:"pointer" }}>
+                    style={{ background:form.category===c.id?"#4f46e5":"#1e1e1e", border:`1px solid ${form.category===c.id?"#6366f1":"#2a2a2a"}`, color:"#fff", borderRadius:22, padding:"8px 16px", fontSize:14, cursor:"pointer" }}>
                     {c.emoji} {c.label.split("/")[0].trim()}
                   </button>
                 ))}
               </div>
             </div>
 
-            <div style={{ marginBottom:20 }}>
-              <label style={{ fontSize:12, color:"#888", display:"block", marginBottom:6 }}>Fecha</label>
+            <div style={{ marginBottom:24 }}>
+              <label style={{ fontSize:15, color:"#888", display:"block", marginBottom:8 }}>Fecha</label>
               <input type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))}
-                style={{ width:"100%", background:"#1a1a1a", border:"1px solid #2a2a2a", borderRadius:12, padding:"12px 14px", color:"#fff", fontSize:14, boxSizing:"border-box" }} />
+                style={{ width:"100%", background:"#1a1a1a", border:"1px solid #2a2a2a", borderRadius:14, padding:"16px 18px", color:"#fff", fontSize:16, boxSizing:"border-box" }} />
             </div>
 
             <button onClick={saveExpense}
-              style={{ width:"100%", background:"linear-gradient(135deg,#6366f1,#ec4899)", border:"none", color:"#fff", borderRadius:14, padding:14, fontSize:15, fontWeight:700, cursor:"pointer" }}>
+              style={{ width:"100%", background:"linear-gradient(135deg,#6366f1,#ec4899)", border:"none", color:"#fff", borderRadius:16, padding:18, fontSize:17, fontWeight:700, cursor:"pointer" }}>
               {editing?"💾 Guardar cambios":"✅ Cargar gasto"}
             </button>
           </div>
@@ -705,7 +734,7 @@ function App() {
 
       {view!=="form"&&(
         <button onClick={()=>{ resetForm(); setView("form"); }}
-          style={{ position:"fixed", bottom:24, right:24, width:56, height:56, borderRadius:"50%", background:"linear-gradient(135deg,#6366f1,#ec4899)", border:"none", color:"#fff", fontSize:28, cursor:"pointer", boxShadow:"0 4px 20px rgba(99,102,241,0.5)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+          style={{ position:"fixed", bottom:28, right:24, width:64, height:64, borderRadius:"50%", background:"linear-gradient(135deg,#6366f1,#ec4899)", border:"none", color:"#fff", fontSize:32, cursor:"pointer", boxShadow:"0 4px 24px rgba(99,102,241,0.6)", display:"flex", alignItems:"center", justifyContent:"center" }}>
           +
         </button>
       )}
@@ -717,4 +746,3 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);
 </script>
 </body>
 </html>
-
