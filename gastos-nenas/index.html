@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>Gastos de las Nenas</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0a0a0a; font-family: 'Inter', sans-serif; }
+    input, select, button, textarea { font-family: inherit; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: #111; }
+    ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // ─── CONFIG ───────────────────────────────────────────────
+    const CLIENT_ID = "325465436957-nkobkl7u4ljcuchuahrfd0arln04accr.apps.googleusercontent.com";
+    const ANTHROPIC_KEY = ""; // No se usa, la key está en el servidor // ← Reemplazá con tu API key
+    const SCOPES = "https://www.googleapis.com/auth/drive.file";
+    const STORAGE_KEY_EXPENSES = "gastos_nenas_expenses";
+    const STORAGE_KEY_PAYMENTS = "gastos_nenas_payments";
+    const STORAGE_KEY_GALLERY  = "gastos_nenas_gallery";
+    // ──────────────────────────────────────────────────────────
+
+    const CATEGORIES = [
+      { id:"colegio",     label:"Colegio / Educación",   emoji:"🎓" },
+      { id:"salud",       label:"Salud / Médicos",        emoji:"🏥" },
+      { id:"ropa",        label:"Ropa / Calzado",         emoji:"👗" },
+      { id:"actividades", label:"Actividades / Deportes", emoji:"⚽" },
+      { id:"otros",       label:"Otros",                  emoji:"📦" },
+    ];
+    const USERS     = ["Gus", "Betiana"];
+    const TOLERANCE = 2000;
+
+    const fmt = n => "$" + Number(n).toLocaleString("es-AR", { minimumFractionDigits: 0 });
+    const monthLabel = key => {
+      const [y, m] = key.split("-");
+      return ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"][parseInt(m)-1] + " " + y;
+    };
+    const userColor = w => w === "Gus" ? "#6366f1" : "#ec4899";
+    const userBg    = w => w === "Gus" ? "#1e1b4b"  : "#4a0724";
+    const getUserFromURL = () => {
+      const p = new URLSearchParams(window.location.search).get("user");
+      return p === "Betiana" ? "Betiana" : p === "Gus" ? "Gus" : null;
+    };
+
+    // ─── Google Drive helpers ─────────────────────────────────
+    const driveReq = async (url, opts = {}) => {
+      const r = await fetch(url, { ...opts, headers: { Authorization: `Bearer ${window._gToken}`, ...(opts.headers||{}) }});
+      return r.json();
+    };
+    const findOrCreate = async (name, parentId = null) => {
+      const q = `name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false${parentId?` and '${parentId}' in parents`:""}`;
+      const s = await driveReq(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)`);
+      if (s.files?.length) return s.files[0].id;
+      const meta = { name, mimeType:"application/vnd.google-apps.folder", ...(parentId?{parents:[parentId]}:{}) };
+      const c = await driveReq("https://www.googleapis.com/drive/v3/files", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(meta) });
+      return c.id;
+    };
+    const uploadToDrive = async (file, name, folderId) => {
+      const meta = JSON.stringify({ name, parents:[folderId] });
+      const form = new FormData();
+      form.append("metadata", new Blob([meta], { type:"application/json" }));
+      form.append("file", file);
+      const r = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink", {
+        method:"POST", headers:{ Authorization:`Bearer ${window._gToken}` }, body:form
+      });
+      return r.json();
+    };
+
+    // ─── LocalStorage helpers ─────────────────────────────────
+    const lsGet = key => { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch { return null; } };
+    const lsSet = (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} };
+
+    // ─── APP ──────────────────────────────────────────────────
+    function App() {
+      const currentUser = getUserFromURL();
+      const [gToken,          setGToken]          = useState(null);
+      const [gLoading,        setGLoading]        = useState(false);
+      const [expenses,        setExpenses]        = useState(() => lsGet(STORAGE_KEY_EXPENSES) || []);
+      const [payments,        setPayments]        = useState(() => lsGet(STORAGE_KEY_PAYMENTS) || []);
+      const [gallery,         setGallery]         = useState(() => lsGet(STORAGE_KEY_GALLERY)  || {});
+      const [view,            setView]            = useState("dashboard");
+      const [filterMonth,     setFilterMonth]     = useState(() => new Date().toISOString().slice(0,7));
+      const [filterCat,       setFilterCat]       = useState("all");
+      const [editing,         setEditing]         = useState(null);
+      const [form,            setForm]            = useState({ who:currentUser||"Gus", amount:"", category:"colegio", desc:"", date:new Date().toISOString().slice(0,10) });
+      const [scanLoading,     setScanLoading]     = useState(false);
+      const [toast,           setToast]           = useState(null);
+      const [deleteConfirm,   setDeleteConfirm]   = useState(null);
+      const [showPayModal,    setShowPayModal]    = useState(false);
+      const [payForm,         setPayForm]         = useState({ amount:"", note:"", date:new Date().toISOString().slice(0,10), month:"" });
+      const [payScanLoading,  setPayScanLoading]  = useState(false);
+      const [showLinks,       setShowLinks]       = useState(false);
+      const [driveStatus,     setDriveStatus]     = useState("");
+      const fileRef    = useRef();
+      const payFileRef = useRef();
+
+      // Persist to localStorage
+      useEffect(() => lsSet(STORAGE_KEY_EXPENSES, expenses), [expenses]);
+      useEffect(() => lsSet(STORAGE_KEY_PAYMENTS, payments), [payments]);
+      useEffect(() => lsSet(STORAGE_KEY_GALLERY,  gallery),  [gallery]);
+
+      const showToast = (msg, type="ok") => { setToast({msg,type}); setTimeout(()=>setToast(null),3500); };
+      const resetForm = () => { setForm({ who:currentUser||"Gus", amount:"", category:"colegio", desc:"", date:new Date().toISOString().slice(0,10) }); setEditing(null); };
+
+      // Google Sign-In
+      const signInGoogle = () => {
+        setGLoading(true);
+        const client = window.google.accounts.oauth2.initTokenClient({
+          client_id: CLIENT_ID, scope: SCOPES,
+          callback: resp => {
+            if (resp.access_token) { window._gToken = resp.access_token; setGToken(resp.access_token); showToast("Google Drive conectado ✓"); }
+            else showToast("Error al conectar Drive","err");
+            setGLoading(false);
+          }
+        });
+        client.requestAccessToken();
+      };
+
+      // Upload comprobante
+      const uploadComprobante = async (file, expId, who, month) => {
+        if (!gToken) return null;
+        try {
+          setDriveStatus("Subiendo a Drive...");
+          const root   = await findOrCreate("Gastos Nenas");
+          const uFolder= await findOrCreate(who,   root);
+          const mFolder= await findOrCreate(month, uFolder);
+          const ext    = file.name?.split(".").pop() || "jpg";
+          const result = await uploadToDrive(file, `${month}-${expId}.${ext}`, mFolder);
+          setDriveStatus("");
+          return result.webViewLink || null;
+        } catch { setDriveStatus(""); return null; }
+      };
+
+      // Scan file with Claude AI
+      const scanFile = async (file, onDone, setLoading) => {
+        setLoading(true);
+        const reader = new FileReader();
+        reader.onload = async e => {
+          const base64 = e.target.result.split(",")[1];
+          const isPDF  = file.type === "application/pdf";
+          try {
+            const block = isPDF
+              ? { type:"document", source:{ type:"base64", media_type:"application/pdf", data:base64 } }
+              : { type:"image",    source:{ type:"base64", media_type:file.type||"image/jpeg", data:base64 } };
+            const res  = await fetch("/api/claude", {
+              method:"POST",
+              headers:{ "Content-Type":"application/json" },
+              body: JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:500,
+                messages:[{ role:"user", content:[block,{ type:"text", text:`Analizá este comprobante y devolvé SOLO JSON sin markdown: {"amount":numero,"desc":"descripcion","date":"YYYY-MM-DD","category":"colegio|salud|ropa|actividades|otros"}. Hoy: ${new Date().toISOString().slice(0,10)}. amount:0 si no leés.` }] }]
+              })
+            });
+            const data   = await res.json();
+            const parsed = JSON.parse(data.content?.map(b=>b.text||"").join("").replace(/```json|```/g,"").trim());
+            onDone(parsed);
+            showToast("Comprobante escaneado ✓");
+          } catch { showToast("No pude leer el archivo","err"); }
+          setLoading(false);
+        };
+        reader.readAsDataURL(file);
+      };
+
+      // Balance
+      const monthExp  = m => expenses.filter(e => e.date.startsWith(m));
+      const totalBy   = (m,w) => monthExp(m).filter(e=>e.who===w).reduce((s,e)=>s+e.amount,0);
+      const monthPays = m => payments.filter(p=>p.month===m);
+      const totalPaid = m => monthPays(m).reduce((s,p)=>s+p.amount,0);
+      const getBal    = m => {
+        const gus=totalBy(m,"Gus"), bet=totalBy(m,"Betiana"), total=gus+bet, half=total/2;
+        const rawDiff=gus-bet, comp=rawDiff/2, paid=totalPaid(m), remaining=Math.max(0,Math.abs(comp)-paid);
+        return { gus, bet, total, half, compensation:Math.abs(comp), debtor:comp>0?"Betiana":"Gus", creditor:comp>0?"Gus":"Betiana", paid, remaining, settled:remaining<=TOLERANCE, balanced:Math.abs(rawDiff)<=TOLERANCE };
+      };
+      const getAccDebt = () => {
+        const all=[...new Set(expenses.map(e=>e.date.slice(0,7)))];
+        let dG=0,dB=0;
+        all.forEach(m=>{ const b=getBal(m); if(!b.settled&&b.remaining>0){ b.debtor==="Gus"?dG+=b.remaining:dB+=b.remaining; }});
+        return {debtGus:dG,debtBet:dB};
+      };
+
+      const saveExpense = async () => {
+        if (!form.amount||isNaN(parseFloat(form.amount))) return showToast("Ingresá un monto válido","err");
+        if (!form.desc.trim()) return showToast("Agregá una descripción","err");
+        const id    = editing || Date.now().toString();
+        const entry = { who:form.who, amount:parseFloat(form.amount), category:form.category, desc:form.desc, date:form.date, id };
+        editing ? setExpenses(prev=>prev.map(e=>e.id===editing?entry:e)) : setExpenses(prev=>[entry,...prev]);
+        showToast(editing?"Gasto actualizado ✓":"Gasto cargado ✓");
+        if (form._pendingFile && gToken) {
+          const link = await uploadComprobante(form._pendingFile, id, form.who, form.date.slice(0,7));
+          if (link) { setGallery(prev=>({...prev,[id]:{link,name:form._pendingFile.name||id}})); showToast("Comprobante en Drive ✓"); }
+        }
+        resetForm(); setView("dashboard");
+      };
+
+      const savePayment = () => {
+        if (!payForm.amount||isNaN(parseFloat(payForm.amount))) return showToast("Ingresá un monto válido","err");
+        setPayments(prev=>[{ id:Date.now().toString(), amount:parseFloat(payForm.amount), note:payForm.note, date:payForm.date, month:payForm.month||filterMonth }, ...prev]);
+        setShowPayModal(false);
+        setPayForm({ amount:"", note:"", date:new Date().toISOString().slice(0,10), month:"" });
+        showToast("Compensación registrada ✓");
+      };
+
+      const exportPDF = async () => {
+        const b    = getBal(filterMonth);
+        const exps = monthExp(filterMonth);
+        const html = `<html><head><meta charset="utf-8"><title>Resumen ${monthLabel(filterMonth)}</title>
+          <style>body{font-family:Arial,sans-serif;padding:32px;color:#222}h1{color:#6366f1}table{width:100%;border-collapse:collapse;margin:16px 0}th,td{border:1px solid #ddd;padding:8px 12px;text-align:left}th{background:#f3f4f6}</style></head>
+          <body><h1>👧 Gastos de las Nenas</h1><h2>${monthLabel(filterMonth)}</h2>
+          <p><strong>Total:</strong> ${fmt(b.total)} | <strong>50% c/u:</strong> ${fmt(b.half)}</p>
+          <p><strong>Gus:</strong> ${fmt(b.gus)} | <strong>Betiana:</strong> ${fmt(b.bet)}</p>
+          <p><strong>Estado:</strong> ${b.settled?"✅ Compensado":`⚠️ ${b.debtor} debe ${fmt(b.remaining)} a ${b.creditor}`}</p>
+          <h3>Detalle</h3><table><tr><th>Fecha</th><th>Quién</th><th>Descripción</th><th>Categoría</th><th>Monto</th></tr>
+          ${exps.map(e=>`<tr><td>${e.date}</td><td>${e.who}</td><td>${e.desc}</td><td>${e.category}</td><td>${fmt(e.amount)}</td></tr>`).join("")}
+          </table><p style="color:#888;font-size:.8em">Gastos Nenas · ${new Date().toLocaleDateString("es-AR")}</p></body></html>`;
+        if (gToken) {
+          try {
+            setDriveStatus("Exportando a Drive...");
+            const root = await findOrCreate("Gastos Nenas");
+            const rf   = await findOrCreate("Resúmenes", root);
+            const mf   = await findOrCreate(filterMonth, rf);
+            await uploadToDrive(new File([new Blob([html],{type:"text/html"})],`Resumen-${filterMonth}.html`,{type:"text/html"}), `Resumen-${filterMonth}.html`, mf);
+            setDriveStatus(""); showToast("Exportado a Drive ✓");
+          } catch { setDriveStatus(""); showToast("Error al exportar","err"); }
+        } else {
+          const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([html],{type:"text/html"})); a.download=`Resumen-${filterMonth}.html`; a.click();
+          showToast("Resumen descargado ✓");
+        }
+      };
+
+      const allMonths  = [...new Set([...expenses.map(e=>e.date.slice(0,7)),filterMonth])].sort().reverse();
+      const bal        = getBal(filterMonth);
+      const accDebt    = getAccDebt();
+      const catEmoji   = id => CATEGORIES.find(c=>c.id===id)?.emoji||"📦";
+      const catLabel   = id => CATEGORIES.find(c=>c.id===id)?.label||"Otros";
+      const filtered   = monthExp(filterMonth).filter(e=>filterCat==="all"||e.category===filterCat);
+      const indColor   = w => bal.balanced?"#22c55e":w===bal.debtor?"#ef4444":"#22c55e";
+      const baseURL    = window.location.href.split("?")[0];
+
+      // NO USER
+      if (!currentUser) return (
+        <div style={{ background:"#0a0a0a", minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:24, color:"#fff" }}>
+          <div style={{ fontSize:48, marginBottom:16 }}>👧</div>
+          <div style={{ fontWeight:700, fontSize:20, marginBottom:8 }}>Gastos de las Nenas</div>
+          <div style={{ color:"#555", fontSize:13, textAlign:"center" }}>Necesitás tu link personal para entrar.<br/>Pedíselo a Gus por WhatsApp.</div>
+        </div>
+      );
+
+      return (
+        <div style={{ background:"#0a0a0a", minHeight:"100vh", color:"#f0f0f0", maxWidth:480, margin:"0 auto" }}>
+
+          {/* Toast */}
+          {toast && <div style={{ position:"fixed", top:16, left:"50%", transform:"translateX(-50%)", background:toast.type==="err"?"#7f1d1d":"#14532d", color:"#fff", padding:"10px 20px", borderRadius:12, fontSize:13, zIndex:100, whiteSpace:"nowrap" }}>{toast.msg}</div>}
+          {driveStatus && <div style={{ position:"fixed", top:56, left:"50%", transform:"translateX(-50%)", background:"#1e1b4b", color:"#a78bfa", padding:"8px 18px", borderRadius:12, fontSize:12, zIndex:100, border:"1px solid #4f46e5" }}>☁️ {driveStatus}</div>}
+
+          {/* Delete confirm */}
+          {deleteConfirm && (
+            <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:99, padding:20 }}>
+              <div style={{ background:"#1a1a1a", border:"1px solid #333", borderRadius:16, padding:24, width:"100%", maxWidth:300, textAlign:"center" }}>
+                <div style={{ fontSize:32, marginBottom:8 }}>🗑️</div>
+                <div style={{ fontWeight:600, marginBottom:16 }}>¿Eliminar gasto?</div>
+                <div style={{ display:"flex", gap:10 }}>
+                  <button onClick={()=>setDeleteConfirm(null)} style={{ flex:1, background:"#2a2a2a", border:"none", color:"#ccc", borderRadius:10, padding:10, cursor:"pointer" }}>Cancelar</button>
+                  <button onClick={()=>{ setExpenses(prev=>prev.filter(e=>e.id!==deleteConfirm)); setDeleteConfirm(null); showToast("Eliminado"); }} style={{ flex:1, background:"#7f1d1d", border:"none", color:"#fff", borderRadius:10, padding:10, cursor:"pointer", fontWeight:600 }}>Eliminar</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Payment modal */}
+          {showPayModal && (
+            <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:99 }}>
+              <div style={{ background:"#1a1a1a", border:"1px solid #333", borderRadius:"20px 20px 0 0", padding:24, width:"100%", maxWidth:480 }}>
+                <div style={{ fontWeight:700, fontSize:16, marginBottom:4 }}>💸 Registrar compensación</div>
+                <div style={{ color:"#888", fontSize:12, marginBottom:16 }}>{bal.debtor} → {bal.creditor} · {monthLabel(filterMonth)}</div>
+                <input type="file" accept="image/*,application/pdf" ref={payFileRef} style={{ display:"none" }}
+                  onChange={e=>e.target.files[0]&&scanFile(e.target.files[0],p=>setPayForm(f=>({...f,amount:p.amount>0?p.amount.toString():f.amount,note:p.desc||f.note,date:p.date||f.date})),setPayScanLoading)} />
+                <button onClick={()=>payFileRef.current.click()} disabled={payScanLoading}
+                  style={{ width:"100%", background:"#1e1b4b", border:"2px dashed #4f46e5", borderRadius:12, padding:12, color:"#a78bfa", fontSize:13, cursor:"pointer", marginBottom:14 }}>
+                  {payScanLoading?"⏳ Escaneando...":"📷 Subir comprobante de transferencia"}
+                </button>
+                {[["Monto","number","amount","0"],["Nota","text","note","Ej: Transferencia Mercado Pago"]].map(([l,t,k,ph])=>(
+                  <div key={k} style={{ marginBottom:10 }}>
+                    <label style={{ fontSize:12, color:"#888", display:"block", marginBottom:4 }}>{l}</label>
+                    <input type={t} value={payForm[k]} onChange={e=>setPayForm(f=>({...f,[k]:e.target.value}))} placeholder={ph}
+                      style={{ width:"100%", background:"#111", border:"1px solid #2a2a2a", borderRadius:10, padding:"10px 12px", color:"#fff", fontSize:13, boxSizing:"border-box" }} />
+                  </div>
+                ))}
+                <div style={{ marginBottom:16 }}>
+                  <label style={{ fontSize:12, color:"#888", display:"block", marginBottom:4 }}>Fecha</label>
+                  <input type="date" value={payForm.date} onChange={e=>setPayForm(f=>({...f,date:e.target.value}))}
+                    style={{ width:"100%", background:"#111", border:"1px solid #2a2a2a", borderRadius:10, padding:"10px 12px", color:"#fff", fontSize:13, boxSizing:"border-box" }} />
+                </div>
+                <div style={{ display:"flex", gap:10 }}>
+                  <button onClick={()=>setShowPayModal(false)} style={{ flex:1, background:"#2a2a2a", border:"none", color:"#ccc", borderRadius:12, padding:12, cursor:"pointer" }}>Cancelar</button>
+                  <button onClick={savePayment} style={{ flex:1, background:"linear-gradient(135deg,#6366f1,#ec4899)", border:"none", color:"#fff", borderRadius:12, padding:12, cursor:"pointer", fontWeight:700 }}>Confirmar</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Links modal */}
+          {showLinks && (
+            <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:99, padding:20 }}>
+              <div style={{ background:"#1a1a1a", border:"1px solid #333", borderRadius:16, padding:24, width:"100%", maxWidth:360 }}>
+                <div style={{ fontWeight:700, fontSize:16, marginBottom:16 }}>🔗 Links de acceso</div>
+                {USERS.map(u=>(
+                  <div key={u} style={{ background:"#111", border:`1px solid ${userColor(u)}`, borderRadius:12, padding:14, marginBottom:10 }}>
+                    <div style={{ color:userColor(u), fontWeight:600, fontSize:13, marginBottom:6 }}>{u==="Gus"?"👨":"👩"} {u}</div>
+                    <div style={{ color:"#aaa", fontSize:11, wordBreak:"break-all", marginBottom:8 }}>{baseURL}?user={u}</div>
+                    <button onClick={()=>{ navigator.clipboard.writeText(`${baseURL}?user=${u}`); showToast(`Link de ${u} copiado ✓`); }}
+                      style={{ background:userBg(u), border:`1px solid ${userColor(u)}`, color:"#fff", borderRadius:8, padding:"6px 14px", fontSize:12, cursor:"pointer" }}>
+                      📋 Copiar
+                    </button>
+                  </div>
+                ))}
+                <button onClick={()=>setShowLinks(false)} style={{ width:"100%", background:"#2a2a2a", border:"none", color:"#ccc", borderRadius:12, padding:12, cursor:"pointer", marginTop:4 }}>Cerrar</button>
+              </div>
+            </div>
+          )}
+
+          {/* HEADER */}
+          <div style={{ background:"linear-gradient(135deg,#1e1b4b,#4a0724)", padding:"16px 16px 14px" }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <div style={{ width:32, height:32, borderRadius:"50%", background:userColor(currentUser), display:"flex", alignItems:"center", justifyContent:"center", fontSize:16 }}>{currentUser==="Gus"?"👨":"👩"}</div>
+                <div>
+                  <div style={{ fontWeight:700, fontSize:15 }}>Hola, {currentUser} 👋</div>
+                  <div style={{ color:"rgba(255,255,255,0.5)", fontSize:11 }}>Gastos de las nenas</div>
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                {!gToken
+                  ? <button onClick={signInGoogle} disabled={gLoading} style={{ background:"#fff", border:"none", color:"#333", borderRadius:8, padding:"5px 10px", fontSize:11, cursor:"pointer", fontWeight:600 }}>{gLoading?"...":"☁️ Drive"}</button>
+                  : <div style={{ background:"rgba(34,197,94,0.2)", border:"1px solid #22c55e", borderRadius:8, padding:"5px 10px", fontSize:11, color:"#86efac" }}>☁️ ✓</div>
+                }
+                <button onClick={()=>setShowLinks(true)} style={{ background:"rgba(255,255,255,0.1)", border:"none", color:"#fff", borderRadius:8, padding:"5px 8px", fontSize:11, cursor:"pointer" }}>🔗</button>
+                <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)}
+                  style={{ background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)", color:"#fff", borderRadius:10, padding:"5px 8px", fontSize:11 }}>
+                  {allMonths.map(m=><option key={m} value={m} style={{ background:"#1a1a1a" }}>{monthLabel(m)}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:10, marginBottom:10 }}>
+              {USERS.map(w=>{
+                const amt=w==="Gus"?bal.gus:bal.bet, color=indColor(w);
+                return (
+                  <div key={w} style={{ flex:1, background:"rgba(255,255,255,0.07)", borderRadius:14, padding:"10px 12px", border:`1.5px solid ${color}` }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:2 }}>
+                      <span style={{ fontSize:12, fontWeight:600, color:userColor(w) }}>{w}</span>
+                      <span style={{ width:9, height:9, borderRadius:"50%", background:color, display:"inline-block" }} />
+                    </div>
+                    <div style={{ fontSize:18, fontWeight:700 }}>{fmt(amt)}</div>
+                    <div style={{ fontSize:10, color:"rgba(255,255,255,0.4)" }}>50% = {fmt(bal.half)}</div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ background:bal.balanced?"rgba(34,197,94,0.15)":"rgba(239,68,68,0.15)", border:`1px solid ${bal.balanced?"#22c55e":"#ef4444"}`, borderRadius:12, padding:"8px 12px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                <span>{bal.balanced?"✅":"⚠️"}</span>
+                <span style={{ fontSize:11, color:bal.balanced?"#86efac":"#fca5a5" }}>
+                  {bal.balanced?`Parejos · dif. ${fmt(bal.compensation)}`:`${bal.debtor} debe ${fmt(bal.remaining)} a ${bal.creditor}`}
+                </span>
+              </div>
+              {!bal.balanced&&!bal.settled&&(
+                <button onClick={()=>{ setPayForm(f=>({...f,amount:bal.remaining.toString(),month:filterMonth})); setShowPayModal(true); }}
+                  style={{ background:"#6366f1", border:"none", color:"#fff", borderRadius:8, padding:"4px 10px", fontSize:11, cursor:"pointer", fontWeight:600 }}>
+                  Pagar
+                </button>
+              )}
+            </div>
+            {(accDebt.debtGus>0||accDebt.debtBet>0)&&(
+              <div style={{ marginTop:8, background:"rgba(251,191,36,0.1)", border:"1px solid #f59e0b", borderRadius:12, padding:"8px 12px", display:"flex", alignItems:"center", gap:6 }}>
+                <span>📊</span>
+                <span style={{ fontSize:11, color:"#fcd34d" }}>Deuda acumulada: {accDebt.debtGus>0?`Gus debe ${fmt(accDebt.debtGus)}`:`Betiana debe ${fmt(accDebt.debtBet)}`}</span>
+              </div>
+            )}
+          </div>
+
+          {/* NAV */}
+          <div style={{ display:"flex", background:"#111", borderBottom:"1px solid #222" }}>
+            {[["dashboard","🏠","Inicio"],["history","📋","Historial"],["summary","📊","Resumen"]].map(([v,icon,label])=>(
+              <button key={v} onClick={()=>setView(v)}
+                style={{ flex:1, background:"none", border:"none", padding:"10px 4px", color:view===v?"#a78bfa":"#666", fontSize:10, cursor:"pointer", borderBottom:view===v?"2px solid #a78bfa":"2px solid transparent", display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                <span style={{ fontSize:17 }}>{icon}</span>{label}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ padding:16, paddingBottom:90 }}>
+
+            {/* DASHBOARD */}
+            {view==="dashboard"&&(
+              <div>
+                <div style={{ fontWeight:600, fontSize:14, marginBottom:14 }}>Últimos gastos · {monthLabel(filterMonth)}</div>
+                {monthExp(filterMonth).length===0
+                  ? <div style={{ textAlign:"center", padding:"40px 0", color:"#555" }}>No hay gastos este mes</div>
+                  : monthExp(filterMonth).map(e=>(
+                    <div key={e.id} style={{ background:"#161616", border:"1px solid #252525", borderRadius:14, padding:"12px 14px", marginBottom:10, display:"flex", alignItems:"center", gap:12 }}>
+                      <div style={{ fontSize:22 }}>{catEmoji(e.category)}</div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontWeight:600, fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.desc}</div>
+                        <div style={{ fontSize:11, color:"#666", marginTop:2 }}>{e.date} · <span style={{ color:userColor(e.who) }}>{e.who}</span>
+                          {gallery[e.id]&&<a href={gallery[e.id].link} target="_blank" rel="noreferrer" style={{ color:"#a78bfa", marginLeft:8, fontSize:10 }}>☁️ Ver</a>}
+                        </div>
+                      </div>
+                      <div style={{ textAlign:"right" }}>
+                        <div style={{ fontWeight:700, fontSize:15 }}>{fmt(e.amount)}</div>
+                        {e.who===currentUser&&(
+                          <div style={{ display:"flex", gap:5, marginTop:4, justifyContent:"flex-end" }}>
+                            <button onClick={()=>{ setForm({who:e.who,amount:e.amount.toString(),category:e.category,desc:e.desc,date:e.date}); setEditing(e.id); setView("form"); }}
+                              style={{ background:"#252525", border:"none", color:"#a78bfa", borderRadius:8, padding:"3px 7px", fontSize:11, cursor:"pointer" }}>✏️</button>
+                            <button onClick={()=>setDeleteConfirm(e.id)}
+                              style={{ background:"#252525", border:"none", color:"#f87171", borderRadius:8, padding:"3px 7px", fontSize:11, cursor:"pointer" }}>🗑️</button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+
+            {/* HISTORY */}
+            {view==="history"&&(
+              <div>
+                <div style={{ display:"flex", gap:6, marginBottom:14, overflowX:"auto", paddingBottom:4 }}>
+                  <button onClick={()=>setFilterCat("all")} style={{ background:filterCat==="all"?"#6366f1":"#1e1e1e", border:"none", color:"#fff", borderRadius:20, padding:"5px 12px", fontSize:11, cursor:"pointer", whiteSpace:"nowrap" }}>Todos</button>
+                  {CATEGORIES.map(c=>(
+                    <button key={c.id} onClick={()=>setFilterCat(c.id)}
+                      style={{ background:filterCat===c.id?"#6366f1":"#1e1e1e", border:"none", color:"#fff", borderRadius:20, padding:"5px 12px", fontSize:11, cursor:"pointer", whiteSpace:"nowrap" }}>
+                      {c.emoji} {c.label.split("/")[0].trim()}
+                    </button>
+                  ))}
+                </div>
+                {filtered.length===0
+                  ? <div style={{ textAlign:"center", padding:"40px 0", color:"#555" }}>No hay gastos</div>
+                  : filtered.map(e=>(
+                    <div key={e.id} style={{ background:"#161616", border:"1px solid #252525", borderRadius:14, padding:"12px 14px", marginBottom:10, display:"flex", alignItems:"center", gap:12 }}>
+                      <div style={{ fontSize:22 }}>{catEmoji(e.category)}</div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontWeight:600, fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.desc}</div>
+                        <div style={{ fontSize:11, color:"#666", marginTop:2 }}>{e.date} · <span style={{ color:userColor(e.who) }}>{e.who}</span> · {catLabel(e.category)}
+                          {gallery[e.id]&&<a href={gallery[e.id].link} target="_blank" rel="noreferrer" style={{ color:"#a78bfa", marginLeft:8, fontSize:10 }}>☁️</a>}
+                        </div>
+                      </div>
+                      <div style={{ textAlign:"right" }}>
+                        <div style={{ fontWeight:700, fontSize:14 }}>{fmt(e.amount)}</div>
+                        {e.who===currentUser&&(
+                          <div style={{ display:"flex", gap:5, marginTop:4, justifyContent:"flex-end" }}>
+                            <button onClick={()=>{ setForm({who:e.who,amount:e.amount.toString(),category:e.category,desc:e.desc,date:e.date}); setEditing(e.id); setView("form"); }}
+                              style={{ background:"#252525", border:"none", color:"#a78bfa", borderRadius:8, padding:"3px 7px", fontSize:11, cursor:"pointer" }}>✏️</button>
+                            <button onClick={()=>setDeleteConfirm(e.id)}
+                              style={{ background:"#252525", border:"none", color:"#f87171", borderRadius:8, padding:"3px 7px", fontSize:11, cursor:"pointer" }}>🗑️</button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+
+            {/* SUMMARY */}
+            {view==="summary"&&(
+              <div>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+                  <div style={{ fontWeight:600, fontSize:14 }}>Resumen · {monthLabel(filterMonth)}</div>
+                  <button onClick={exportPDF} style={{ background:"#1e1b4b", border:"1px solid #4f46e5", color:"#a78bfa", borderRadius:10, padding:"6px 12px", fontSize:11, cursor:"pointer" }}>
+                    {gToken?"☁️ Exportar":"📥 Descargar"}
+                  </button>
+                </div>
+                <div style={{ background:"#161616", border:"1px solid #252525", borderRadius:14, padding:16, marginBottom:12 }}>
+                  {[["Total del mes",fmt(bal.total)],["50% cada uno",fmt(bal.half)]].map(([l,v])=>(
+                    <div key={l} style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}>
+                      <span style={{ color:"#888", fontSize:13 }}>{l}</span><span style={{ fontWeight:600 }}>{v}</span>
+                    </div>
+                  ))}
+                  <div style={{ height:1, background:"#252525", margin:"10px 0" }} />
+                  {USERS.map(w=>{ const amt=w==="Gus"?bal.gus:bal.bet, diff=amt-bal.half; return (
+                    <div key={w} style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+                      <span style={{ color:userColor(w), fontSize:13, fontWeight:600 }}>{w} gastó</span>
+                      <div><span style={{ fontWeight:700 }}>{fmt(amt)}</span>
+                        <span style={{ fontSize:11, marginLeft:8, color:diff>TOLERANCE?"#ef4444":diff<-TOLERANCE?"#22c55e":"#888" }}>{diff>=0?`+${fmt(diff)}`:fmt(diff)}</span>
+                      </div>
+                    </div>
+                  );})}
+                </div>
+                <div style={{ background:bal.settled?"rgba(34,197,94,0.1)":"rgba(239,68,68,0.1)", border:`1px solid ${bal.settled?"#22c55e":"#ef4444"}`, borderRadius:14, padding:16, marginBottom:12, textAlign:"center" }}>
+                  {bal.settled
+                    ? <><div style={{ fontSize:28 }}>✅</div><div style={{ fontWeight:700, fontSize:14, color:"#86efac", marginTop:6 }}>¡Compensado!</div></>
+                    : <><div style={{ fontSize:28 }}>💸</div>
+                      <div style={{ fontWeight:700, fontSize:14, color:"#fca5a5", marginTop:6 }}>{bal.debtor} debe {fmt(bal.remaining)} a {bal.creditor}</div>
+                      {bal.paid>0&&<div style={{ color:"#888", fontSize:12, marginTop:4 }}>Ya pagó {fmt(bal.paid)} de {fmt(bal.compensation)}</div>}
+                      <button onClick={()=>{ setPayForm(f=>({...f,amount:bal.remaining.toString(),month:filterMonth})); setShowPayModal(true); }}
+                        style={{ marginTop:12, background:"linear-gradient(135deg,#6366f1,#ec4899)", border:"none", color:"#fff", borderRadius:10, padding:"8px 20px", fontSize:13, fontWeight:700, cursor:"pointer" }}>
+                        💸 Registrar pago
+                      </button>
+                    </>}
+                </div>
+                {(accDebt.debtGus>0||accDebt.debtBet>0)&&(
+                  <div style={{ background:"rgba(251,191,36,0.08)", border:"1px solid #f59e0b", borderRadius:14, padding:14, marginBottom:12 }}>
+                    <div style={{ fontWeight:600, fontSize:13, color:"#fcd34d", marginBottom:4 }}>📊 Deuda acumulada</div>
+                    {accDebt.debtGus>0&&<div style={{ fontSize:13, color:"#fca5a5" }}>Gus debe {fmt(accDebt.debtGus)}</div>}
+                    {accDebt.debtBet>0&&<div style={{ fontSize:13, color:"#fca5a5" }}>Betiana debe {fmt(accDebt.debtBet)}</div>}
+                  </div>
+                )}
+                {monthPays(filterMonth).length>0&&(
+                  <div style={{ marginBottom:12 }}>
+                    <div style={{ fontWeight:600, fontSize:13, marginBottom:8 }}>Pagos registrados</div>
+                    {monthPays(filterMonth).map(p=>(
+                      <div key={p.id} style={{ background:"#161616", border:"1px solid #1a3a1a", borderRadius:12, padding:"10px 14px", marginBottom:8, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                        <div><div style={{ fontSize:13, fontWeight:600 }}>💸 {p.note||"Transferencia"}</div><div style={{ fontSize:11, color:"#666" }}>{p.date}</div></div>
+                        <div style={{ fontWeight:700, color:"#86efac" }}>{fmt(p.amount)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ fontWeight:600, fontSize:13, marginBottom:10 }}>Por categoría</div>
+                {CATEGORIES.map(cat=>{ const total=monthExp(filterMonth).filter(e=>e.category===cat.id).reduce((s,e)=>s+e.amount,0); if(!total) return null; const pct=bal.total>0?(total/bal.total)*100:0; return (
+                  <div key={cat.id} style={{ background:"#161616", border:"1px solid #252525", borderRadius:12, padding:"10px 14px", marginBottom:8 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}><span style={{ fontSize:13 }}>{cat.emoji} {cat.label}</span><span style={{ fontWeight:600 }}>{fmt(total)}</span></div>
+                    <div style={{ background:"#252525", borderRadius:4, height:4 }}><div style={{ background:"#6366f1", height:4, borderRadius:4, width:`${pct}%` }} /></div>
+                  </div>
+                );})}
+              </div>
+            )}
+
+            {/* FORM */}
+            {view==="form"&&(
+              <div>
+                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:20 }}>
+                  <button onClick={()=>{ resetForm(); setView("dashboard"); }} style={{ background:"#1e1e1e", border:"none", color:"#ccc", borderRadius:10, padding:"8px 12px", cursor:"pointer", fontSize:13 }}>← Volver</button>
+                  <div style={{ fontWeight:600, fontSize:15 }}>{editing?"Editar gasto":"Nuevo gasto"}</div>
+                </div>
+                <div style={{ background:userBg(currentUser), border:`2px solid ${userColor(currentUser)}`, borderRadius:12, padding:"10px 14px", marginBottom:14, display:"flex", alignItems:"center", gap:8 }}>
+                  <span style={{ fontSize:20 }}>{currentUser==="Gus"?"👨":"👩"}</span>
+                  <div>
+                    <div style={{ fontSize:11, color:"rgba(255,255,255,0.5)" }}>Cargando como</div>
+                    <div style={{ fontWeight:700, color:userColor(currentUser), fontSize:15 }}>{currentUser}</div>
+                  </div>
+                </div>
+                {!editing&&(
+                  <>
+                    <input type="file" accept="image/*,application/pdf" ref={fileRef} style={{ display:"none" }}
+                      onChange={e=>{ if(!e.target.files[0]) return; const f=e.target.files[0]; scanFile(f, p=>setForm(prev=>({...prev,amount:p.amount>0?p.amount.toString():prev.amount,desc:p.desc||prev.desc,date:p.date||prev.date,category:p.category||prev.category,_pendingFile:f})), setScanLoading); }} />
+                    <button onClick={()=>fileRef.current.click()} disabled={scanLoading}
+                      style={{ width:"100%", background:"#1e1b4b", border:"2px dashed #4f46e5", borderRadius:14, padding:14, color:"#a78bfa", fontSize:13, cursor:"pointer", marginBottom:20, display:"flex", alignItems:"center", justifyContent:"center", gap:8, boxSizing:"border-box" }}>
+                      {scanLoading?"⏳ Escaneando...":`📷 Subir foto, captura o PDF${gToken?" (→ Drive)":""}`}
+                    </button>
+                  </>
+                )}
+                {[["Monto (ARS)","number","amount","0","18px"],["Descripción","text","desc","Ej: Cuota del colegio...","14px"]].map(([label,type,key,ph,fs])=>(
+                  <div key={key} style={{ marginBottom:12 }}>
+                    <label style={{ fontSize:12, color:"#888", display:"block", marginBottom:6 }}>{label}</label>
+                    <input type={type} value={form[key]} onChange={e=>setForm(f=>({...f,[key]:e.target.value}))} placeholder={ph}
+                      style={{ width:"100%", background:"#1a1a1a", border:"1px solid #2a2a2a", borderRadius:12, padding:"12px 14px", color:"#fff", fontSize:fs, boxSizing:"border-box" }} />
+                  </div>
+                ))}
+                <div style={{ marginBottom:12 }}>
+                  <label style={{ fontSize:12, color:"#888", display:"block", marginBottom:6 }}>Categoría</label>
+                  <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+                    {CATEGORIES.map(c=>(
+                      <button key={c.id} onClick={()=>setForm(f=>({...f,category:c.id}))}
+                        style={{ background:form.category===c.id?"#4f46e5":"#1e1e1e", border:`1px solid ${form.category===c.id?"#6366f1":"#2a2a2a"}`, color:"#fff", borderRadius:20, padding:"6px 12px", fontSize:12, cursor:"pointer" }}>
+                        {c.emoji} {c.label.split("/")[0].trim()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ marginBottom:20 }}>
+                  <label style={{ fontSize:12, color:"#888", display:"block", marginBottom:6 }}>Fecha</label>
+                  <input type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))}
+                    style={{ width:"100%", background:"#1a1a1a", border:"1px solid #2a2a2a", borderRadius:12, padding:"12px 14px", color:"#fff", fontSize:14, boxSizing:"border-box" }} />
+                </div>
+                <button onClick={saveExpense}
+                  style={{ width:"100%", background:"linear-gradient(135deg,#6366f1,#ec4899)", border:"none", color:"#fff", borderRadius:14, padding:14, fontSize:15, fontWeight:700, cursor:"pointer" }}>
+                  {editing?"💾 Guardar cambios":"✅ Cargar gasto"}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {view!=="form"&&(
+            <button onClick={()=>{ resetForm(); setView("form"); }}
+              style={{ position:"fixed", bottom:24, right:24, width:56, height:56, borderRadius:"50%", background:"linear-gradient(135deg,#6366f1,#ec4899)", border:"none", color:"#fff", fontSize:28, cursor:"pointer", boxShadow:"0 4px 20px rgba(99,102,241,0.5)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+              +
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
