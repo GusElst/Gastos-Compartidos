@@ -10,11 +10,10 @@
   <script src="https://accounts.google.com/gsi/client" async></script>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
-    body { background:#0a0a0a; font-family:'Inter',sans-serif; font-size:16px; }
+    body { font-family:'Inter',sans-serif; font-size:16px; }
     input,select,button,textarea { font-family:inherit; font-size:16px; }
     ::-webkit-scrollbar { width:4px; }
-    ::-webkit-scrollbar-track { background:#111; }
-    ::-webkit-scrollbar-thumb { background:#333; border-radius:4px; }
+    ::-webkit-scrollbar-thumb { border-radius:4px; }
   </style>
 </head>
 <body>
@@ -22,8 +21,56 @@
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback } = React;
 
-const CLIENT_ID  = "325465436957-nkobkl7u4ljcuchuahrfd0arln04accr.apps.googleusercontent.com";
-const SCOPES     = "https://www.googleapis.com/auth/drive.file";
+const CLIENT_ID = "325465436957-nkobkl7u4ljcuchuahrfd0arln04accr.apps.googleusercontent.com";
+const SCOPES    = "https://www.googleapis.com/auth/drive.file";
+
+const THEMES = {
+  "dark-orange": {
+    name:"🌑 Oscuro Naranja",
+    bg:"#0a0a0a", surface:"#141414", surface2:"#1e1e1e", border:"#2a2a2a",
+    text:"#f0f0f0", textMuted:"#888", textFaint:"#444",
+    accent:"#f97316", accentBg:"#431407", accentText:"#fff",
+    success:"#2dd4bf", successBg:"rgba(45,212,191,0.12)", successBorder:"#2dd4bf",
+    danger:"#ef4444", dangerBg:"rgba(239,68,68,0.12)", dangerBorder:"#ef4444",
+    warn:"#fbbf24", warnBg:"rgba(251,191,36,0.1)", warnBorder:"#f59e0b",
+    header:"#111111", nav:"#0f0f0f",
+    scrollThumb:"#333",
+  },
+  "light-orange": {
+    name:"☀️ Claro Naranja",
+    bg:"#f5f5f5", surface:"#ffffff", surface2:"#f0f0f0", border:"#e0e0e0",
+    text:"#111111", textMuted:"#666", textFaint:"#bbb",
+    accent:"#f97316", accentBg:"#fff7ed", accentText:"#fff",
+    success:"#0d9488", successBg:"rgba(13,148,136,0.08)", successBorder:"#0d9488",
+    danger:"#dc2626", dangerBg:"rgba(220,38,38,0.08)", dangerBorder:"#dc2626",
+    warn:"#d97706", warnBg:"rgba(217,119,6,0.08)", warnBorder:"#d97706",
+    header:"#ffffff", nav:"#ffffff",
+    scrollThumb:"#ccc",
+  },
+  "dark-slate": {
+    name:"🌑 Oscuro Slate",
+    bg:"#0a0a0a", surface:"#141414", surface2:"#1e1e1e", border:"#2a2a2a",
+    text:"#f0f0f0", textMuted:"#888", textFaint:"#444",
+    accent:"#6366f1", accentBg:"#1e1b4b", accentText:"#fff",
+    success:"#22c55e", successBg:"rgba(34,197,94,0.12)", successBorder:"#22c55e",
+    danger:"#ef4444", dangerBg:"rgba(239,68,68,0.12)", dangerBorder:"#ef4444",
+    warn:"#fbbf24", warnBg:"rgba(251,191,36,0.1)", warnBorder:"#f59e0b",
+    header:"#111111", nav:"#0f0f0f",
+    scrollThumb:"#333",
+  },
+  "light-slate": {
+    name:"☀️ Claro Slate",
+    bg:"#f5f5f5", surface:"#ffffff", surface2:"#f0f0f0", border:"#e0e0e0",
+    text:"#111111", textMuted:"#666", textFaint:"#bbb",
+    accent:"#6366f1", accentBg:"#ede9fe", accentText:"#fff",
+    success:"#16a34a", successBg:"rgba(22,163,74,0.08)", successBorder:"#16a34a",
+    danger:"#dc2626", dangerBg:"rgba(220,38,38,0.08)", dangerBorder:"#dc2626",
+    warn:"#d97706", warnBg:"rgba(217,119,6,0.08)", warnBorder:"#d97706",
+    header:"#ffffff", nav:"#ffffff",
+    scrollThumb:"#ccc",
+  },
+};
+
 const CATEGORIES = [
   { id:"colegio",     label:"Colegio / Educación",   emoji:"🎓" },
   { id:"salud",       label:"Salud / Médicos",        emoji:"🏥" },
@@ -31,483 +78,534 @@ const CATEGORIES = [
   { id:"actividades", label:"Actividades / Deportes", emoji:"⚽" },
   { id:"otros",       label:"Otros",                  emoji:"📦" },
 ];
-const NENAS    = ["Valen", "Pili", "Ambas"];
-const USERS    = ["Gus", "Betiana"];
+const NENAS     = ["Valen","Pili","Ambas"];
+const USERS     = ["Gus","Betiana"];
 const TOLERANCE = 2000;
 
-const fmt = n => "$" + Number(n).toLocaleString("es-AR", { minimumFractionDigits:0 });
+const fmt = n => "$" + Number(n).toLocaleString("es-AR",{minimumFractionDigits:0});
 const monthLabel = key => {
   const [y,m] = key.split("-");
-  return ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"][parseInt(m)-1] + " " + y;
+  return ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"][parseInt(m)-1]+" "+y;
 };
-const userColor = w => w==="Gus" ? "#6366f1" : "#ec4899";
-const userBg    = w => w==="Gus" ? "#1e1b4b"  : "#4a0724";
-const nenaColor = n => n==="Valen" ? "#f59e0b" : n==="Pili" ? "#06b6d4" : "#a78bfa";
-const nenaBg    = n => n==="Valen" ? "#451a03"  : n==="Pili" ? "#0c1a3a" : "#1e1b4b";
 const getUserFromURL = () => {
   const p = new URLSearchParams(window.location.search).get("user");
-  return p==="Betiana" ? "Betiana" : p==="Gus" ? "Gus" : null;
+  return p==="Betiana"?"Betiana":p==="Gus"?"Gus":null;
 };
+const nenaColor = n => n==="Valen"?"#f59e0b":n==="Pili"?"#06b6d4":"#a78bfa";
+const nenaBg    = (n,t) => n==="Valen"?(t.bg==="F5f5f5"||t.bg==="#f5f5f5"?"#fff7ed":"#451a03"):n==="Pili"?(t.bg==="#f5f5f5"?"#e0f2fe":"#0c1a3a"):(t.bg==="#f5f5f5"?"#ede9fe":"#1e1b4b");
 
-// Drive helpers
-const driveReq = async (url, opts={}) => {
-  const r = await fetch(url, { ...opts, headers:{ Authorization:`Bearer ${window._gToken}`, ...(opts.headers||{}) }});
+const api = async (body) => {
+  const res = await fetch("/api/data",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  return res.json();
+};
+const driveReq = async (url,opts={}) => {
+  const r = await fetch(url,{...opts,headers:{Authorization:`Bearer ${window._gToken}`,...(opts.headers||{})}});
   return r.json();
 };
-const findOrCreate = async (name, parentId=null) => {
-  const q = `name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false${parentId?` and '${parentId}' in parents`:""}`;
-  const s = await driveReq(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)`);
-  if (s.files?.length) return s.files[0].id;
-  const meta = { name, mimeType:"application/vnd.google-apps.folder", ...(parentId?{parents:[parentId]}:{}) };
-  const c = await driveReq("https://www.googleapis.com/drive/v3/files", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(meta) });
+const findOrCreate = async (name,parentId=null) => {
+  const q=`name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false${parentId?` and '${parentId}' in parents`:""}`;
+  const s=await driveReq(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)`);
+  if(s.files?.length) return s.files[0].id;
+  const meta={name,mimeType:"application/vnd.google-apps.folder",...(parentId?{parents:[parentId]}:{})};
+  const c=await driveReq("https://www.googleapis.com/drive/v3/files",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(meta)});
   return c.id;
 };
-const uploadToDrive = async (file, name, folderId) => {
-  const meta = JSON.stringify({ name, parents:[folderId] });
-  const form = new FormData();
-  form.append("metadata", new Blob([meta], { type:"application/json" }));
-  form.append("file", file);
-  const r = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink", {
-    method:"POST", headers:{ Authorization:`Bearer ${window._gToken}` }, body:form
-  });
+const uploadToDrive = async (file,name,folderId) => {
+  const meta=JSON.stringify({name,parents:[folderId]});
+  const form=new FormData();
+  form.append("metadata",new Blob([meta],{type:"application/json"}));
+  form.append("file",file);
+  const r=await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink",{method:"POST",headers:{Authorization:`Bearer ${window._gToken}`},body:form});
   return r.json();
 };
 
-const lsGet = key => { try { const v=localStorage.getItem(key); return v?JSON.parse(v):null; } catch { return null; } };
-const lsSet = (key,val) => { try { localStorage.setItem(key,JSON.stringify(val)); } catch {} };
-
-// Tamaños generosos
-const sz = {
-  headerPad: "20px 18px 16px",
-  cardPad: "16px 18px",
-  btnPad: "14px 18px",
-  inputPad: "14px 16px",
-  fontSize: { xs:13, sm:15, md:17, lg:20, xl:24, xxl:28 },
-  radius: { sm:12, md:16, lg:20 },
-  gap: 14,
-};
+function Avatar({user, photo, size=40, t, onClick}) {
+  const initials = user==="Gus"?"G":"B";
+  const color    = user==="Gus"?t.accent:"#f43f5e";
+  return (
+    <div onClick={onClick} style={{width:size,height:size,borderRadius:"50%",overflow:"hidden",border:`2px solid ${color}`,cursor:onClick?"pointer":"default",flexShrink:0,background:t.surface2,display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*0.4,fontWeight:700,color:color}}>
+      {photo ? <img src={photo} style={{width:"100%",height:"100%",objectFit:"cover"}} alt={user}/> : initials}
+    </div>
+  );
+}
 
 function App() {
   const currentUser = getUserFromURL();
+  const [themeKey,      setThemeKey]      = useState(()=>localStorage.getItem("gastos_theme")||"dark-orange");
   const [gToken,        setGToken]        = useState(null);
   const [gLoading,      setGLoading]      = useState(false);
-  const [expenses,      setExpenses]      = useState(()=>lsGet("gastos_expenses")||[]);
-  const [payments,      setPayments]      = useState(()=>lsGet("gastos_payments")||[]);
-  const [gallery,       setGallery]       = useState(()=>lsGet("gastos_gallery")||{});
+  const [expenses,      setExpenses]      = useState([]);
+  const [payments,      setPayments]      = useState([]);
+  const [gallery,       setGallery]       = useState({});
+  const [profiles,      setProfiles]      = useState({});
+  const [dbLoading,     setDbLoading]     = useState(true);
   const [view,          setView]          = useState("dashboard");
   const [filterMonth,   setFilterMonth]   = useState(()=>new Date().toISOString().slice(0,7));
   const [filterCat,     setFilterCat]     = useState("all");
   const [filterNena,    setFilterNena]    = useState("all");
   const [editing,       setEditing]       = useState(null);
-  const [form,          setForm]          = useState({ who:currentUser||"Gus", amount:"", category:"colegio", nena:"Valen", desc:"", date:new Date().toISOString().slice(0,10) });
+  const [form,          setForm]          = useState({who:currentUser||"Gus",amount:"",category:"colegio",nena:"Valen",desc:"",date:new Date().toISOString().slice(0,10)});
   const [scanLoading,   setScanLoading]   = useState(false);
   const [toast,         setToast]         = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [dupConfirm,    setDupConfirm]    = useState(null);
   const [showPayModal,  setShowPayModal]  = useState(false);
-  const [payForm,       setPayForm]       = useState({ amount:"", note:"", date:new Date().toISOString().slice(0,10), month:"" });
+  const [payForm,       setPayForm]       = useState({amount:"",note:"",date:new Date().toISOString().slice(0,10),month:""});
   const [payScanLoad,   setPayScanLoad]   = useState(false);
   const [showLinks,     setShowLinks]     = useState(false);
+  const [showSettings,  setShowSettings]  = useState(false);
   const [driveStatus,   setDriveStatus]   = useState("");
-  const fileRef    = useRef();
-  const payFileRef = useRef();
-  const gsiReady   = useRef(false);
+  const fileRef     = useRef();
+  const payFileRef  = useRef();
+  const photoRef    = useRef();
+  const gsiReady    = useRef(false);
 
-  useEffect(()=>lsSet("gastos_expenses",expenses),[expenses]);
-  useEffect(()=>lsSet("gastos_payments",payments),[payments]);
-  useEffect(()=>lsSet("gastos_gallery",gallery),[gallery]);
+  const t = THEMES[themeKey];
 
-  const showToast = (msg,type="ok") => { setToast({msg,type}); setTimeout(()=>setToast(null),3500); };
-  const resetForm = () => { setForm({ who:currentUser||"Gus", amount:"", category:"colegio", nena:"Valen", desc:"", date:new Date().toISOString().slice(0,10) }); setEditing(null); };
+  useEffect(()=>{
+    document.body.style.background = t.bg;
+    document.body.style.color = t.text;
+    localStorage.setItem("gastos_theme",themeKey);
+  },[themeKey,t]);
 
-  // Auto-connect Drive silenciosamente
-  const connectDrive = useCallback((silent=false) => {
-    if (!window.google?.accounts?.oauth2) return;
+  const loadData = useCallback(async()=>{
+    setDbLoading(true);
+    try {
+      const r = await api({action:"getAll"});
+      if(r.expenses) setExpenses(r.expenses.map(e=>({...e,desc:e.description})));
+      if(r.payments) setPayments(r.payments);
+      if(r.gallery){const g={};r.gallery.forEach(i=>{g[i.expense_id]={link:i.link,name:i.name}});setGallery(g);}
+      if(r.profiles){const p={};r.profiles?.forEach(i=>{p[i.username]={photo:i.photo,theme:i.theme}});setProfiles(p);
+        if(currentUser&&p[currentUser]?.theme) setThemeKey(p[currentUser].theme);
+      }
+    } catch{}
+    setDbLoading(false);
+  },[currentUser]);
+
+  useEffect(()=>{loadData();},[loadData]);
+
+  const showToast=(msg,type="ok")=>{setToast({msg,type});setTimeout(()=>setToast(null),3500);};
+  const resetForm=()=>{setForm({who:currentUser||"Gus",amount:"",category:"colegio",nena:"Valen",desc:"",date:new Date().toISOString().slice(0,10)});setEditing(null);};
+
+  const connectDrive = useCallback((silent=false)=>{
+    if(!window.google?.accounts?.oauth2) return;
     const client = window.google.accounts.oauth2.initTokenClient({
-      client_id: CLIENT_ID, scope: SCOPES,
-      prompt: silent ? "none" : "",
-      callback: resp => {
-        if (resp.access_token) {
-          window._gToken = resp.access_token;
-          setGToken(resp.access_token);
-          if (!silent) showToast("Google Drive conectado ✓");
-          // Re-conectar automáticamente antes de que expire (55 min)
-          setTimeout(() => connectDrive(true), 55 * 60 * 1000);
-        } else if (!silent) {
-          showToast("Error al conectar Drive","err");
-        }
+      client_id:CLIENT_ID,scope:SCOPES,prompt:silent?"none":"",
+      callback:resp=>{
+        if(resp.access_token){window._gToken=resp.access_token;setGToken(resp.access_token);if(!silent)showToast("Google Drive conectado ✓");setTimeout(()=>connectDrive(true),55*60*1000);}
+        else if(!silent) showToast("Error al conectar Drive","err");
         setGLoading(false);
       }
     });
-    if (!silent) setGLoading(true);
+    if(!silent) setGLoading(true);
     client.requestAccessToken();
-  }, []);
+  },[]);
 
-  // Cuando Google Identity Services carga, intentar conexión silenciosa
-  useEffect(() => {
-    const tryAutoConnect = () => {
-      if (window.google?.accounts?.oauth2 && !gsiReady.current) {
-        gsiReady.current = true;
-        connectDrive(true);
-      }
-    };
-    const interval = setInterval(() => {
-      if (window.google?.accounts?.oauth2) {
-        clearInterval(interval);
-        tryAutoConnect();
-      }
-    }, 500);
-    return () => clearInterval(interval);
-  }, [connectDrive]);
+  useEffect(()=>{
+    const iv=setInterval(()=>{if(window.google?.accounts?.oauth2&&!gsiReady.current){gsiReady.current=true;clearInterval(iv);connectDrive(true);}},500);
+    return()=>clearInterval(iv);
+  },[connectDrive]);
 
-  const uploadComprobante = async (file, expId, who, month) => {
-    if (!gToken) return null;
-    try {
-      setDriveStatus("Subiendo a Drive...");
-      const root    = await findOrCreate("Gastos Nenas");
-      const uFolder = await findOrCreate(who, root);
-      const mFolder = await findOrCreate(month, uFolder);
-      const ext     = file.name?.split(".").pop()||"jpg";
-      const result  = await uploadToDrive(file, `${month}-${expId}.${ext}`, mFolder);
-      setDriveStatus("");
-      return result.webViewLink||null;
-    } catch { setDriveStatus(""); return null; }
+  const saveTheme = async(key)=>{
+    setThemeKey(key);
+    if(currentUser) await api({action:"upsertProfile",data:{username:currentUser,theme:key,photo:profiles[currentUser]?.photo||null}});
   };
 
-  const scanFile = async (file, onDone, setLoading) => {
+  const savePhoto = async(file)=>{
+    const reader=new FileReader();
+    reader.onload=async e=>{
+      const dataUrl=e.target.result;
+      const newProfiles={...profiles,[currentUser]:{...profiles[currentUser],photo:dataUrl}};
+      setProfiles(newProfiles);
+      await api({action:"upsertProfile",data:{username:currentUser,theme:themeKey,photo:dataUrl}});
+      showToast("Foto actualizada ✓");
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const uploadComprobante=async(file,expId,who,month)=>{
+    if(!gToken) return null;
+    try{
+      setDriveStatus("Subiendo a Drive...");
+      const root=await findOrCreate("Gastos Nenas");
+      const uf=await findOrCreate(who,root);
+      const mf=await findOrCreate(month,uf);
+      const ext=file.name?.split(".").pop()||"jpg";
+      const result=await uploadToDrive(file,`${month}-${expId}.${ext}`,mf);
+      setDriveStatus("");return result.webViewLink||null;
+    }catch{setDriveStatus("");return null;}
+  };
+
+  const scanFile=async(file,onDone,setLoading)=>{
     setLoading(true);
-    const reader = new FileReader();
-    reader.onload = async e => {
-      const base64 = e.target.result.split(",")[1];
-      const isPDF  = file.type==="application/pdf";
-      try {
-        const block = isPDF
-          ? { type:"document", source:{ type:"base64", media_type:"application/pdf", data:base64 } }
-          : { type:"image",    source:{ type:"base64", media_type:file.type||"image/jpeg", data:base64 } };
-        const res  = await fetch("/api/claude", { method:"POST", headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:500,
-            messages:[{ role:"user", content:[block,{ type:"text", text:`Analizá este comprobante y devolvé SOLO JSON sin markdown: {"amount":numero,"desc":"descripcion","date":"YYYY-MM-DD","category":"colegio|salud|ropa|actividades|otros"}. Hoy: ${new Date().toISOString().slice(0,10)}. amount:0 si no leés.` }] }]
-          })
-        });
-        const data   = await res.json();
-        const parsed = JSON.parse(data.content?.map(b=>b.text||"").join("").replace(/```json|```/g,"").trim());
-        onDone(parsed);
-        showToast("Comprobante escaneado ✓");
-      } catch { showToast("No pude leer el archivo","err"); }
+    const reader=new FileReader();
+    reader.onload=async e=>{
+      const base64=e.target.result.split(",")[1];
+      const isPDF=file.type==="application/pdf";
+      try{
+        const block=isPDF?{type:"document",source:{type:"base64",media_type:"application/pdf",data:base64}}:{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:base64}};
+        const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:500,messages:[{role:"user",content:[block,{type:"text",text:`Analizá este comprobante y devolvé SOLO JSON sin markdown: {"amount":numero,"desc":"descripcion","date":"YYYY-MM-DD","category":"colegio|salud|ropa|actividades|otros"}. Hoy: ${new Date().toISOString().slice(0,10)}. amount:0 si no leés.`}]}]})});
+        const data=await res.json();
+        const parsed=JSON.parse(data.content?.map(b=>b.text||"").join("").replace(/```json|```/g,"").trim());
+        onDone(parsed);showToast("Comprobante escaneado ✓");
+      }catch{showToast("No pude leer el archivo","err");}
       setLoading(false);
     };
     reader.readAsDataURL(file);
   };
 
-  const monthExp  = m => expenses.filter(e=>e.date.startsWith(m));
-  const totalBy   = (m,w) => monthExp(m).filter(e=>e.who===w).reduce((s,e)=>s+e.amount,0);
-  const monthPays = m => payments.filter(p=>p.month===m);
-  const totalPaid = m => monthPays(m).reduce((s,p)=>s+p.amount,0);
-  const getBal    = m => {
-    const gus=totalBy(m,"Gus"), bet=totalBy(m,"Betiana"), total=gus+bet, half=total/2;
-    const rawDiff=gus-bet, comp=rawDiff/2, paid=totalPaid(m), remaining=Math.max(0,Math.abs(comp)-paid);
-    return { gus, bet, total, half, compensation:Math.abs(comp), debtor:comp>0?"Betiana":"Gus", creditor:comp>0?"Gus":"Betiana", paid, remaining, settled:remaining<=TOLERANCE, balanced:Math.abs(rawDiff)<=TOLERANCE };
+  const monthExp  = m=>expenses.filter(e=>e.date.startsWith(m));
+  const totalBy   = (m,w)=>monthExp(m).filter(e=>e.who===w).reduce((s,e)=>s+Number(e.amount),0);
+  const monthPays = m=>payments.filter(p=>p.month===m);
+  const totalPaid = m=>monthPays(m).reduce((s,p)=>s+Number(p.amount),0);
+  const getBal    = m=>{
+    const gus=totalBy(m,"Gus"),bet=totalBy(m,"Betiana"),total=gus+bet,half=total/2;
+    const rawDiff=gus-bet,comp=rawDiff/2,paid=totalPaid(m),remaining=Math.max(0,Math.abs(comp)-paid);
+    return{gus,bet,total,half,compensation:Math.abs(comp),debtor:comp>0?"Betiana":"Gus",creditor:comp>0?"Gus":"Betiana",paid,remaining,settled:remaining<=TOLERANCE,balanced:Math.abs(rawDiff)<=TOLERANCE};
   };
-  const nenaStats = m => {
-    const exps = monthExp(m);
-    const valenTotal = exps.filter(e=>e.nena==="Valen"||e.nena==="Ambas").reduce((s,e)=>s+(e.nena==="Ambas"?e.amount/2:e.amount),0);
-    const piliTotal  = exps.filter(e=>e.nena==="Pili" ||e.nena==="Ambas").reduce((s,e)=>s+(e.nena==="Ambas"?e.amount/2:e.amount),0);
-    const byCat = nena => CATEGORIES.map(cat=>({...cat, total:exps.filter(e=>(e.nena===nena||e.nena==="Ambas")&&e.category===cat.id).reduce((s,e)=>s+(e.nena==="Ambas"?e.amount/2:e.amount),0)})).filter(c=>c.total>0);
-    return { valenTotal, piliTotal, valenCats:byCat("Valen"), piliCats:byCat("Pili") };
+  const nenaStats=m=>{
+    const exps=monthExp(m);
+    const vT=exps.filter(e=>e.nena==="Valen"||e.nena==="Ambas").reduce((s,e)=>s+(e.nena==="Ambas"?Number(e.amount)/2:Number(e.amount)),0);
+    const pT=exps.filter(e=>e.nena==="Pili"||e.nena==="Ambas").reduce((s,e)=>s+(e.nena==="Ambas"?Number(e.amount)/2:Number(e.amount)),0);
+    const byCat=nena=>CATEGORIES.map(cat=>({...cat,total:exps.filter(e=>(e.nena===nena||e.nena==="Ambas")&&e.category===cat.id).reduce((s,e)=>s+(e.nena==="Ambas"?Number(e.amount)/2:Number(e.amount)),0)})).filter(c=>c.total>0);
+    return{valenTotal:vT,piliTotal:pT,valenCats:byCat("Valen"),piliCats:byCat("Pili")};
   };
-  const getAccDebt = () => {
+  const getAccDebt=()=>{
     const all=[...new Set(expenses.map(e=>e.date.slice(0,7)))];
     let dG=0,dB=0;
-    all.forEach(m=>{ const b=getBal(m); if(!b.settled&&b.remaining>0){ b.debtor==="Gus"?dG+=b.remaining:dB+=b.remaining; }});
-    return {debtGus:dG,debtBet:dB};
+    all.forEach(m=>{const b=getBal(m);if(!b.settled&&b.remaining>0){b.debtor==="Gus"?dG+=b.remaining:dB+=b.remaining;}});
+    return{debtGus:dG,debtBet:dB};
   };
 
-  const saveExpense = async (forceSave=false) => {
-    if (!form.amount||isNaN(parseFloat(form.amount))) return showToast("Ingresá un monto válido","err");
-    if (!form.desc.trim()) return showToast("Agregá una descripción","err");
-    if (!editing && !forceSave) {
-      const amt = parseFloat(form.amount);
-      const dup = expenses.find(e=>e.amount===amt&&e.date===form.date&&e.who===form.who);
-      if (dup) return setDupConfirm({ amt, date:form.date });
+  const saveExpense=async(forceSave=false)=>{
+    if(!form.amount||isNaN(parseFloat(form.amount))) return showToast("Ingresá un monto válido","err");
+    if(!form.desc.trim()) return showToast("Agregá una descripción","err");
+    if(!editing&&!forceSave){
+      const amt=parseFloat(form.amount);
+      const dup=expenses.find(e=>Number(e.amount)===amt&&e.date===form.date&&e.who===form.who);
+      if(dup) return setDupConfirm({amt,date:form.date});
     }
-    const id    = editing||Date.now().toString();
-    const entry = { who:form.who, amount:parseFloat(form.amount), category:form.category, nena:form.nena, desc:form.desc, date:form.date, id };
-    editing ? setExpenses(prev=>prev.map(e=>e.id===editing?entry:e)) : setExpenses(prev=>[entry,...prev]);
-    showToast(editing?"Gasto actualizado ✓":"Gasto cargado ✓");
-    if (form._pendingFile&&gToken) {
-      const link = await uploadComprobante(form._pendingFile, id, form.who, form.date.slice(0,7));
-      if (link) { setGallery(prev=>({...prev,[id]:{link,name:form._pendingFile.name||id}})); showToast("Comprobante en Drive ✓"); }
-    }
-    resetForm(); setView("dashboard");
+    const id=editing||Date.now().toString();
+    const entry={id,who:form.who,amount:parseFloat(form.amount),category:form.category,nena:form.nena,description:form.desc,date:form.date};
+    try{
+      if(editing){await api({action:"update",table:"expenses",id,data:entry});setExpenses(prev=>prev.map(e=>e.id===editing?{...entry,desc:form.desc}:e));showToast("Gasto actualizado ✓");}
+      else{await api({action:"insert",table:"expenses",data:entry});setExpenses(prev=>[{...entry,desc:form.desc},...prev]);showToast("Gasto cargado ✓");}
+      if(form._pendingFile&&gToken){
+        const link=await uploadComprobante(form._pendingFile,id,form.who,form.date.slice(0,7));
+        if(link){await api({action:"upsertGallery",data:{expense_id:id,link,name:form._pendingFile.name||id}});setGallery(prev=>({...prev,[id]:{link,name:form._pendingFile.name||id}}));showToast("Comprobante en Drive ✓");}
+      }
+    }catch{showToast("Error al guardar","err");}
+    resetForm();setView("dashboard");
   };
 
-  const savePayment = () => {
-    if (!payForm.amount||isNaN(parseFloat(payForm.amount))) return showToast("Ingresá un monto válido","err");
-    setPayments(prev=>[{ id:Date.now().toString(), amount:parseFloat(payForm.amount), note:payForm.note, date:payForm.date, month:payForm.month||filterMonth },...prev]);
-    setShowPayModal(false);
-    setPayForm({ amount:"", note:"", date:new Date().toISOString().slice(0,10), month:"" });
+  const deleteExpense=async(id)=>{
+    await api({action:"delete",table:"expenses",id});
+    setExpenses(prev=>prev.filter(e=>e.id!==id));setDeleteConfirm(null);showToast("Eliminado");
+  };
+
+  const savePayment=async()=>{
+    if(!payForm.amount||isNaN(parseFloat(payForm.amount))) return showToast("Ingresá un monto válido","err");
+    const entry={id:Date.now().toString(),amount:parseFloat(payForm.amount),note:payForm.note,date:payForm.date,month:payForm.month||filterMonth};
+    await api({action:"insert",table:"payments",data:entry});
+    setPayments(prev=>[entry,...prev]);setShowPayModal(false);
+    setPayForm({amount:"",note:"",date:new Date().toISOString().slice(0,10),month:""});
     showToast("Compensación registrada ✓");
   };
 
-  const generateReport = m => {
-    const b=getBal(m), ns=nenaStats(m), exps=monthExp(m), pays=monthPays(m);
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Reporte ${monthLabel(m)}</title>
-    <style>body{font-family:Arial,sans-serif;padding:32px;color:#222;max-width:800px;margin:0 auto}h1{color:#6366f1}h2{color:#444;margin:24px 0 12px;border-bottom:2px solid #eee;padding-bottom:6px}
+  const generateReport=m=>{
+    const b=getBal(m),ns=nenaStats(m),exps=monthExp(m),pays=monthPays(m);
+    return`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Reporte ${monthLabel(m)}</title>
+    <style>body{font-family:Arial,sans-serif;padding:32px;color:#222;max-width:800px;margin:0 auto}h1{color:#f97316}h2{color:#444;margin:24px 0 12px;border-bottom:2px solid #eee;padding-bottom:6px}
     table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}th,td{border:1px solid #ddd;padding:8px 12px;text-align:left}th{background:#f3f4f6}tr:nth-child(even){background:#f9fafb}
-    .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600}.ok{background:#dcfce7;color:#166534}.err{background:#fee2e2;color:#991b1b}
+    .badge{display:inline-block;padding:3px 10px;border-radius:6px;font-size:12px;font-weight:600}.ok{background:#dcfce7;color:#166534}.err{background:#fee2e2;color:#991b1b}
     .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:12px 0}.card{background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:16px}
-    .num{font-size:24px;font-weight:700;color:#6366f1}footer{margin-top:40px;color:#999;font-size:12px;border-top:1px solid #eee;padding-top:12px}</style></head><body>
+    .num{font-size:24px;font-weight:700;color:#f97316}footer{margin-top:40px;color:#999;font-size:12px;border-top:1px solid #eee;padding-top:12px}</style></head><body>
     <h1>👧 Gastos de las Nenas</h1><p style="color:#888">Reporte · <strong>${monthLabel(m)}</strong> · ${new Date().toLocaleDateString("es-AR")}</p>
     <h2>💰 Balance</h2>
     <div class="grid">
-      <div class="card"><h3 style="color:#6366f1">👨 Gus</h3><div class="num">${fmt(b.gus)}</div><div style="color:#888;font-size:13px">50% = ${fmt(b.half)}</div></div>
-      <div class="card"><h3 style="color:#ec4899">👩 Betiana</h3><div class="num">${fmt(b.bet)}</div><div style="color:#888;font-size:13px">50% = ${fmt(b.half)}</div></div>
+      <div class="card"><h3>👨 Gus</h3><div class="num">${fmt(b.gus)}</div><div style="color:#888;font-size:13px">50% = ${fmt(b.half)}</div></div>
+      <div class="card"><h3>👩 Betiana</h3><div class="num">${fmt(b.bet)}</div><div style="color:#888;font-size:13px">50% = ${fmt(b.half)}</div></div>
     </div>
     <p><strong>Total:</strong> ${fmt(b.total)} | <strong>Estado:</strong> <span class="badge ${b.settled?"ok":"err"}">${b.settled?"✅ Compensado":`⚠️ ${b.debtor} debe ${fmt(b.remaining)} a ${b.creditor}`}</span></p>
     ${pays.length>0?`<p><strong>Pagos:</strong> ${pays.map(p=>`${p.date} ${fmt(p.amount)}${p.note?` (${p.note})`:""}`).join(" · ")}</p>`:""}
     <h2>👧 Por Niña</h2>
     <div class="grid">
-      <div class="card"><h3 style="color:#d97706">🌟 Valen</h3><div class="num" style="color:#d97706">${fmt(ns.valenTotal)}</div>${ns.valenCats.map(c=>`<div style="display:flex;justify-content:space-between;font-size:13px;margin-top:6px"><span>${c.emoji} ${c.label}</span><span>${fmt(c.total)}</span></div>`).join("")}</div>
-      <div class="card"><h3 style="color:#0891b2">💫 Pili</h3><div class="num" style="color:#0891b2">${fmt(ns.piliTotal)}</div>${ns.piliCats.map(c=>`<div style="display:flex;justify-content:space-between;font-size:13px;margin-top:6px"><span>${c.emoji} ${c.label}</span><span>${fmt(c.total)}</span></div>`).join("")}</div>
+      <div class="card"><h3>🌟 Valen</h3><div class="num" style="color:#f59e0b">${fmt(ns.valenTotal)}</div>${ns.valenCats.map(c=>`<div style="display:flex;justify-content:space-between;font-size:13px;margin-top:6px"><span>${c.emoji} ${c.label}</span><span>${fmt(c.total)}</span></div>`).join("")}</div>
+      <div class="card"><h3>💫 Pili</h3><div class="num" style="color:#06b6d4">${fmt(ns.piliTotal)}</div>${ns.piliCats.map(c=>`<div style="display:flex;justify-content:space-between;font-size:13px;margin-top:6px"><span>${c.emoji} ${c.label}</span><span>${fmt(c.total)}</span></div>`).join("")}</div>
     </div>
     <h2>📋 Detalle</h2>
     <table><tr><th>Fecha</th><th>Quién</th><th>Niña</th><th>Categoría</th><th>Descripción</th><th>Monto</th></tr>
-    ${exps.sort((a,b)=>a.date.localeCompare(b.date)).map(e=>`<tr><td>${e.date}</td><td style="color:${userColor(e.who)};font-weight:600">${e.who}</td><td>${e.nena||"-"}</td><td>${CATEGORIES.find(c=>c.id===e.category)?.emoji||""} ${CATEGORIES.find(c=>c.id===e.category)?.label||e.category}</td><td>${e.desc}</td><td style="font-weight:600">${fmt(e.amount)}</td></tr>`).join("")}
+    ${exps.sort((a,b)=>a.date.localeCompare(b.date)).map(e=>`<tr><td>${e.date}</td><td style="font-weight:600">${e.who}</td><td>${e.nena||"-"}</td><td>${CATEGORIES.find(c=>c.id===e.category)?.emoji||""} ${CATEGORIES.find(c=>c.id===e.category)?.label||e.category}</td><td>${e.desc||e.description}</td><td style="font-weight:600">${fmt(e.amount)}</td></tr>`).join("")}
     <tr style="background:#f3f4f6"><td colspan="5"><strong>Total</strong></td><td><strong>${fmt(b.total)}</strong></td></tr></table>
     <footer>Gastos Nenas App · Gus & Betiana · ${monthLabel(m)}</footer></body></html>`;
   };
 
-  const exportReport = async () => {
-    const html = generateReport(filterMonth);
-    if (gToken) {
-      try {
+  const exportReport=async()=>{
+    const html=generateReport(filterMonth);
+    if(gToken){
+      try{
         setDriveStatus("Exportando reporte...");
-        const root = await findOrCreate("Gastos Nenas");
-        const rf   = await findOrCreate("Reportes", root);
-        const mf   = await findOrCreate(filterMonth, rf);
-        await uploadToDrive(new File([new Blob([html],{type:"text/html"})],`Reporte-${filterMonth}.html`,{type:"text/html"}), `Reporte-${filterMonth}.html`, mf);
-        setDriveStatus(""); showToast("Reporte en Drive ✓");
-      } catch { setDriveStatus(""); showToast("Error al exportar","err"); }
-    } else {
-      const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([html],{type:"text/html"})); a.download=`Reporte-${filterMonth}.html`; a.click();
+        const root=await findOrCreate("Gastos Nenas");const rf=await findOrCreate("Reportes",root);const mf=await findOrCreate(filterMonth,rf);
+        await uploadToDrive(new File([new Blob([html],{type:"text/html"})],`Reporte-${filterMonth}.html`,{type:"text/html"}),`Reporte-${filterMonth}.html`,mf);
+        setDriveStatus("");showToast("Reporte en Drive ✓");
+      }catch{setDriveStatus("");showToast("Error al exportar","err");}
+    }else{
+      const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([html],{type:"text/html"}));a.download=`Reporte-${filterMonth}.html`;a.click();
       showToast("Reporte descargado ✓");
     }
   };
 
-  const allMonths = [...new Set([...expenses.map(e=>e.date.slice(0,7)),filterMonth])].sort().reverse();
-  const bal       = getBal(filterMonth);
-  const ns        = nenaStats(filterMonth);
-  const accDebt   = getAccDebt();
-  const catEmoji  = id => CATEGORIES.find(c=>c.id===id)?.emoji||"📦";
-  const catLabel  = id => CATEGORIES.find(c=>c.id===id)?.label||"Otros";
-  const filtered  = monthExp(filterMonth).filter(e=>(filterCat==="all"||e.category===filterCat)&&(filterNena==="all"||e.nena===filterNena));
-  const indColor  = w => bal.balanced?"#22c55e":w===bal.debtor?"#ef4444":"#22c55e";
-  const baseURL   = window.location.href.split("?")[0];
+  const allMonths=[...new Set([...expenses.map(e=>e.date.slice(0,7)),filterMonth])].sort().reverse();
+  const bal=getBal(filterMonth);
+  const ns=nenaStats(filterMonth);
+  const accDebt=getAccDebt();
+  const catEmoji=id=>CATEGORIES.find(c=>c.id===id)?.emoji||"📦";
+  const catLabel=id=>CATEGORIES.find(c=>c.id===id)?.label||"Otros";
+  const filtered=monthExp(filterMonth).filter(e=>(filterCat==="all"||e.category===filterCat)&&(filterNena==="all"||e.nena===filterNena));
+  const baseURL=window.location.href.split("?")[0];
+  const myPhoto=profiles[currentUser]?.photo||null;
+  const otherUser=currentUser==="Gus"?"Betiana":"Gus";
+  const otherPhoto=profiles[otherUser]?.photo||null;
 
-  if (!currentUser) return (
-    <div style={{ background:"#0a0a0a", minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:24, color:"#fff" }}>
-      <div style={{ fontSize:56, marginBottom:16 }}>👧</div>
-      <div style={{ fontWeight:700, fontSize:24, marginBottom:8 }}>Gastos de las Nenas</div>
-      <div style={{ color:"#555", fontSize:16, textAlign:"center" }}>Necesitás tu link personal.<br/>Pedíselo a Gus por WhatsApp.</div>
+  // Styles helpers
+  const card=(extra={})=>({background:t.surface,border:`1px solid ${t.border}`,borderRadius:10,...extra});
+  const btn=(extra={})=>({border:"none",borderRadius:8,padding:"10px 16px",cursor:"pointer",fontSize:14,fontWeight:600,...extra});
+  const inp=(extra={})=>({width:"100%",background:t.surface2,border:`1px solid ${t.border}`,borderRadius:8,padding:"14px 16px",color:t.text,fontSize:16,boxSizing:"border-box",...extra});
+  const label=(extra={})=>({fontSize:14,color:t.textMuted,display:"block",marginBottom:8,...extra});
+  const mOverlay={position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:99,padding:20};
+  const mBox={...card(),padding:28,width:"100%",maxWidth:340};
+
+  if(!currentUser) return(
+    <div style={{background:t.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,color:t.text}}>
+      <div style={{fontSize:56,marginBottom:16}}>👧</div>
+      <div style={{fontWeight:700,fontSize:24,marginBottom:8}}>Gastos de las Nenas</div>
+      <div style={{color:t.textMuted,fontSize:16,textAlign:"center"}}>Necesitás tu link personal.<br/>Pedíselo a Gus por WhatsApp.</div>
     </div>
   );
 
-  // Shared modal style
-  const modalOverlay = { position:"fixed", inset:0, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:99, padding:20 };
-  const modalBox     = { background:"#1a1a1a", border:"1px solid #333", borderRadius:sz.radius.lg, padding:28, width:"100%", maxWidth:340 };
+  if(dbLoading) return(
+    <div style={{background:t.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:t.text}}>
+      <div style={{fontSize:48,marginBottom:16}}>👧</div>
+      <div style={{color:t.accent,fontSize:16}}>Cargando datos...</div>
+    </div>
+  );
 
-  return (
-    <div style={{ background:"#0a0a0a", minHeight:"100vh", color:"#f0f0f0", maxWidth:520, margin:"0 auto" }}>
+  return(
+    <div style={{background:t.bg,minHeight:"100vh",color:t.text,maxWidth:520,margin:"0 auto"}}>
 
-      {toast&&<div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:toast.type==="err"?"#7f1d1d":"#14532d", color:"#fff", padding:"12px 24px", borderRadius:14, fontSize:15, zIndex:100, whiteSpace:"nowrap", boxShadow:"0 4px 20px rgba(0,0,0,0.5)" }}>{toast.msg}</div>}
-      {driveStatus&&<div style={{ position:"fixed", top:66, left:"50%", transform:"translateX(-50%)", background:"#1e1b4b", color:"#a78bfa", padding:"10px 20px", borderRadius:12, fontSize:14, zIndex:100, border:"1px solid #4f46e5" }}>☁️ {driveStatus}</div>}
+      {toast&&<div style={{position:"fixed",top:20,left:"50%",transform:"translateX(-50%)",background:toast.type==="err"?t.dangerBorder:t.successBorder,color:"#fff",padding:"12px 24px",borderRadius:8,fontSize:15,zIndex:100,whiteSpace:"nowrap",boxShadow:"0 4px 20px rgba(0,0,0,0.3)"}}>{toast.msg}</div>}
+      {driveStatus&&<div style={{position:"fixed",top:66,left:"50%",transform:"translateX(-50%)",background:t.accentBg,color:t.accent,padding:"10px 20px",borderRadius:8,fontSize:14,zIndex:100,border:`1px solid ${t.accent}`}}>☁️ {driveStatus}</div>}
 
-      {/* Duplicate confirm */}
+      {/* Duplicate */}
       {dupConfirm&&(
-        <div style={modalOverlay}>
-          <div style={{ ...modalBox, textAlign:"center" }}>
-            <div style={{ fontSize:40, marginBottom:12 }}>⚠️</div>
-            <div style={{ fontWeight:700, fontSize:18, marginBottom:10 }}>Posible duplicado</div>
-            <div style={{ color:"#999", fontSize:15, marginBottom:24 }}>Ya existe un gasto de <strong style={{color:"#fcd34d"}}>{fmt(dupConfirm.amt)}</strong> del <strong style={{color:"#fcd34d"}}>{dupConfirm.date}</strong>.<br/><br/>¿Querés cargarlo igual?</div>
-            <div style={{ display:"flex", gap:12 }}>
-              <button onClick={()=>setDupConfirm(null)} style={{ flex:1, background:"#2a2a2a", border:"none", color:"#ccc", borderRadius:12, padding:14, cursor:"pointer", fontSize:15 }}>Cancelar</button>
-              <button onClick={()=>{ setDupConfirm(null); saveExpense(true); }} style={{ flex:1, background:"#f59e0b", border:"none", color:"#000", borderRadius:12, padding:14, cursor:"pointer", fontSize:15, fontWeight:700 }}>Cargar igual</button>
-            </div>
+        <div style={mOverlay}><div style={{...mBox,textAlign:"center"}}>
+          <div style={{fontSize:36,marginBottom:12}}>⚠️</div>
+          <div style={{fontWeight:700,fontSize:17,marginBottom:10,color:t.text}}>Posible duplicado</div>
+          <div style={{color:t.textMuted,fontSize:15,marginBottom:24}}>Ya existe un gasto de <strong style={{color:t.accent}}>{fmt(dupConfirm.amt)}</strong> del <strong style={{color:t.accent}}>{dupConfirm.date}</strong>.<br/><br/>¿Querés cargarlo igual?</div>
+          <div style={{display:"flex",gap:12}}>
+            <button onClick={()=>setDupConfirm(null)} style={{...btn(),flex:1,background:t.surface2,color:t.textMuted}}>Cancelar</button>
+            <button onClick={()=>{setDupConfirm(null);saveExpense(true);}} style={{...btn(),flex:1,background:t.warn,color:"#000"}}>Cargar igual</button>
           </div>
-        </div>
+        </div></div>
       )}
 
-      {/* Delete confirm */}
+      {/* Delete */}
       {deleteConfirm&&(
-        <div style={modalOverlay}>
-          <div style={{ ...modalBox, textAlign:"center" }}>
-            <div style={{ fontSize:40, marginBottom:12 }}>🗑️</div>
-            <div style={{ fontWeight:700, fontSize:18, marginBottom:24 }}>¿Eliminar gasto?</div>
-            <div style={{ display:"flex", gap:12 }}>
-              <button onClick={()=>setDeleteConfirm(null)} style={{ flex:1, background:"#2a2a2a", border:"none", color:"#ccc", borderRadius:12, padding:14, cursor:"pointer", fontSize:15 }}>Cancelar</button>
-              <button onClick={()=>{ setExpenses(prev=>prev.filter(e=>e.id!==deleteConfirm)); setDeleteConfirm(null); showToast("Eliminado"); }} style={{ flex:1, background:"#7f1d1d", border:"none", color:"#fff", borderRadius:12, padding:14, cursor:"pointer", fontSize:15, fontWeight:700 }}>Eliminar</button>
-            </div>
+        <div style={mOverlay}><div style={{...mBox,textAlign:"center"}}>
+          <div style={{fontSize:36,marginBottom:12}}>🗑️</div>
+          <div style={{fontWeight:700,fontSize:17,marginBottom:24,color:t.text}}>¿Eliminar gasto?</div>
+          <div style={{display:"flex",gap:12}}>
+            <button onClick={()=>setDeleteConfirm(null)} style={{...btn(),flex:1,background:t.surface2,color:t.textMuted}}>Cancelar</button>
+            <button onClick={()=>deleteExpense(deleteConfirm)} style={{...btn(),flex:1,background:t.danger,color:"#fff"}}>Eliminar</button>
           </div>
-        </div>
+        </div></div>
       )}
 
-      {/* Payment modal */}
+      {/* Payment */}
       {showPayModal&&(
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:99 }}>
-          <div style={{ background:"#1a1a1a", border:"1px solid #333", borderRadius:"24px 24px 0 0", padding:28, width:"100%", maxWidth:520 }}>
-            <div style={{ fontWeight:700, fontSize:18, marginBottom:6 }}>💸 Registrar compensación</div>
-            <div style={{ color:"#888", fontSize:14, marginBottom:18 }}>{bal.debtor} → {bal.creditor} · {monthLabel(filterMonth)}</div>
-            <input type="file" accept="image/*,application/pdf" ref={payFileRef} style={{ display:"none" }}
-              onChange={e=>e.target.files[0]&&scanFile(e.target.files[0],p=>setPayForm(f=>({...f,amount:p.amount>0?p.amount.toString():f.amount,note:p.desc||f.note,date:p.date||f.date})),setPayScanLoad)} />
-            <button onClick={()=>payFileRef.current.click()} disabled={payScanLoad}
-              style={{ width:"100%", background:"#1e1b4b", border:"2px dashed #4f46e5", borderRadius:14, padding:16, color:"#a78bfa", fontSize:15, cursor:"pointer", marginBottom:16 }}>
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:99}}>
+          <div style={{...card(),borderRadius:"16px 16px 0 0",padding:28,width:"100%",maxWidth:520}}>
+            <div style={{fontWeight:700,fontSize:18,marginBottom:4}}>💸 Registrar compensación</div>
+            <div style={{color:t.textMuted,fontSize:14,marginBottom:18}}>{bal.debtor} → {bal.creditor} · {monthLabel(filterMonth)}</div>
+            <input type="file" accept="image/*,application/pdf" ref={payFileRef} style={{display:"none"}} onChange={e=>e.target.files[0]&&scanFile(e.target.files[0],p=>setPayForm(f=>({...f,amount:p.amount>0?p.amount.toString():f.amount,note:p.desc||f.note,date:p.date||f.date})),setPayScanLoad)}/>
+            <button onClick={()=>payFileRef.current.click()} disabled={payScanLoad} style={{...btn(),width:"100%",background:t.accentBg,border:`1.5px dashed ${t.accent}`,color:t.accent,marginBottom:16,padding:16}}>
               {payScanLoad?"⏳ Escaneando...":"📷 Subir comprobante de transferencia"}
             </button>
-            {[["Monto","number","amount","0"],["Nota","text","note","Ej: Mercado Pago"]].map(([l,t,k,ph])=>(
-              <div key={k} style={{ marginBottom:12 }}>
-                <label style={{ fontSize:14, color:"#888", display:"block", marginBottom:6 }}>{l}</label>
-                <input type={t} value={payForm[k]} onChange={e=>setPayForm(f=>({...f,[k]:e.target.value}))} placeholder={ph}
-                  style={{ width:"100%", background:"#111", border:"1px solid #2a2a2a", borderRadius:12, padding:"14px 16px", color:"#fff", fontSize:16, boxSizing:"border-box" }} />
-              </div>
+            {[["Monto","number","amount","0"],["Nota","text","note","Ej: Mercado Pago"]].map(([l,tp,k,ph])=>(
+              <div key={k} style={{marginBottom:12}}><label style={label()}>{l}</label><input type={tp} value={payForm[k]} onChange={e=>setPayForm(f=>({...f,[k]:e.target.value}))} placeholder={ph} style={inp()}/></div>
             ))}
-            <div style={{ marginBottom:20 }}>
-              <label style={{ fontSize:14, color:"#888", display:"block", marginBottom:6 }}>Fecha</label>
-              <input type="date" value={payForm.date} onChange={e=>setPayForm(f=>({...f,date:e.target.value}))}
-                style={{ width:"100%", background:"#111", border:"1px solid #2a2a2a", borderRadius:12, padding:"14px 16px", color:"#fff", fontSize:16, boxSizing:"border-box" }} />
-            </div>
-            <div style={{ display:"flex", gap:12 }}>
-              <button onClick={()=>setShowPayModal(false)} style={{ flex:1, background:"#2a2a2a", border:"none", color:"#ccc", borderRadius:14, padding:14, cursor:"pointer", fontSize:15 }}>Cancelar</button>
-              <button onClick={savePayment} style={{ flex:1, background:"linear-gradient(135deg,#6366f1,#ec4899)", border:"none", color:"#fff", borderRadius:14, padding:14, cursor:"pointer", fontSize:15, fontWeight:700 }}>Confirmar</button>
+            <div style={{marginBottom:20}}><label style={label()}>Fecha</label><input type="date" value={payForm.date} onChange={e=>setPayForm(f=>({...f,date:e.target.value}))} style={inp()}/></div>
+            <div style={{display:"flex",gap:12}}>
+              <button onClick={()=>setShowPayModal(false)} style={{...btn(),flex:1,background:t.surface2,color:t.textMuted}}>Cancelar</button>
+              <button onClick={savePayment} style={{...btn(),flex:1,background:t.accent,color:"#fff"}}>Confirmar</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Links modal */}
-      {showLinks&&(
-        <div style={modalOverlay}>
-          <div style={modalBox}>
-            <div style={{ fontWeight:700, fontSize:18, marginBottom:18 }}>🔗 Links de acceso</div>
-            {USERS.map(u=>(
-              <div key={u} style={{ background:"#111", border:`1px solid ${userColor(u)}`, borderRadius:14, padding:16, marginBottom:12 }}>
-                <div style={{ color:userColor(u), fontWeight:700, fontSize:15, marginBottom:8 }}>{u==="Gus"?"👨":"👩"} {u}</div>
-                <div style={{ color:"#aaa", fontSize:12, wordBreak:"break-all", marginBottom:10 }}>{baseURL}?user={u}</div>
-                <button onClick={()=>{ navigator.clipboard.writeText(`${baseURL}?user=${u}`); showToast(`Link de ${u} copiado ✓`); }}
-                  style={{ background:userBg(u), border:`1px solid ${userColor(u)}`, color:"#fff", borderRadius:10, padding:"8px 16px", fontSize:14, cursor:"pointer" }}>📋 Copiar</button>
-              </div>
-            ))}
-            <button onClick={()=>setShowLinks(false)} style={{ width:"100%", background:"#2a2a2a", border:"none", color:"#ccc", borderRadius:14, padding:14, cursor:"pointer", fontSize:15, marginTop:6 }}>Cerrar</button>
+      {/* Settings */}
+      {showSettings&&(
+        <div style={mOverlay}><div style={{...mBox,maxWidth:380}}>
+          <div style={{fontWeight:700,fontSize:18,marginBottom:20,color:t.text}}>⚙️ Configuración</div>
+
+          {/* Avatar */}
+          <div style={{marginBottom:24,textAlign:"center"}}>
+            <input type="file" accept="image/*" ref={photoRef} style={{display:"none"}} onChange={e=>e.target.files[0]&&savePhoto(e.target.files[0])}/>
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:10}}>
+              <Avatar user={currentUser} photo={myPhoto} size={72} t={t} onClick={()=>photoRef.current.click()}/>
+              <button onClick={()=>photoRef.current.click()} style={{...btn(),background:t.surface2,color:t.textMuted,fontSize:13}}>📷 Cambiar foto</button>
+            </div>
           </div>
-        </div>
+
+          {/* Theme */}
+          <div style={{marginBottom:20}}>
+            <label style={label()}>Tema visual</label>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              {Object.entries(THEMES).map(([key,th])=>(
+                <button key={key} onClick={()=>saveTheme(key)}
+                  style={{...btn(),background:themeKey===key?t.accent:t.surface2,color:themeKey===key?"#fff":t.textMuted,fontSize:13,padding:"10px 8px",textAlign:"center"}}>
+                  {th.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button onClick={()=>setShowSettings(false)} style={{...btn(),width:"100%",background:t.surface2,color:t.textMuted}}>Cerrar</button>
+        </div></div>
+      )}
+
+      {/* Links — solo para Gus */}
+      {showLinks&&currentUser==="Gus"&&(
+        <div style={mOverlay}><div style={mBox}>
+          <div style={{fontWeight:700,fontSize:18,marginBottom:18,color:t.text}}>🔗 Links de acceso</div>
+          {USERS.map(u=>(
+            <div key={u} style={{...card({padding:16,marginBottom:12})}}>
+              <div style={{fontWeight:700,fontSize:15,marginBottom:8,color:t.accent}}>{u}</div>
+              <div style={{color:t.textMuted,fontSize:12,wordBreak:"break-all",marginBottom:10}}>{baseURL}?user={u}</div>
+              <button onClick={()=>{navigator.clipboard.writeText(`${baseURL}?user=${u}`);showToast(`Link de ${u} copiado ✓`);}} style={{...btn(),background:t.accentBg,color:t.accent,fontSize:13}}>📋 Copiar</button>
+            </div>
+          ))}
+          <button onClick={()=>setShowLinks(false)} style={{...btn(),width:"100%",background:t.surface2,color:t.textMuted,marginTop:4}}>Cerrar</button>
+        </div></div>
       )}
 
       {/* HEADER */}
-      <div style={{ background:"linear-gradient(135deg,#1e1b4b,#4a0724)", padding:sz.headerPad }}>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-            <div style={{ width:42, height:42, borderRadius:"50%", background:userColor(currentUser), display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>{currentUser==="Gus"?"👨":"👩"}</div>
+      <div style={{background:t.header,borderBottom:`1px solid ${t.border}`,padding:"16px 18px"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <Avatar user={currentUser} photo={myPhoto} size={42} t={t} onClick={()=>setShowSettings(true)}/>
             <div>
-              <div style={{ fontWeight:700, fontSize:18 }}>Hola, {currentUser} 👋</div>
-              <div style={{ color:"rgba(255,255,255,0.5)", fontSize:13 }}>Gastos de las nenas</div>
+              <div style={{fontWeight:700,fontSize:17}}>Hola, {currentUser} 👋</div>
+              <div style={{color:t.textMuted,fontSize:13}}>Gastos de las nenas</div>
             </div>
           </div>
-          <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
             {!gToken
-              ? <button onClick={()=>connectDrive(false)} disabled={gLoading} style={{ background:"#fff", border:"none", color:"#333", borderRadius:10, padding:"8px 12px", fontSize:13, cursor:"pointer", fontWeight:700 }}>{gLoading?"...":"☁️ Drive"}</button>
-              : <div style={{ background:"rgba(34,197,94,0.2)", border:"1px solid #22c55e", borderRadius:10, padding:"8px 12px", fontSize:13, color:"#86efac", fontWeight:600 }}>☁️ Drive ✓</div>
+              ?<button onClick={()=>connectDrive(false)} disabled={gLoading} style={{...btn(),background:t.surface2,color:t.textMuted,padding:"8px 12px",fontSize:13}}>{gLoading?"...":"☁️ Drive"}</button>
+              :<div style={{background:t.successBg,border:`1px solid ${t.successBorder}`,borderRadius:8,padding:"8px 12px",fontSize:13,color:t.success,fontWeight:600}}>☁️ ✓</div>
             }
-            <button onClick={()=>setShowLinks(true)} style={{ background:"rgba(255,255,255,0.1)", border:"none", color:"#fff", borderRadius:10, padding:"8px 10px", fontSize:13, cursor:"pointer" }}>🔗</button>
-            <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)}
-              style={{ background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)", color:"#fff", borderRadius:10, padding:"8px 10px", fontSize:13 }}>
-              {allMonths.map(m=><option key={m} value={m} style={{ background:"#1a1a1a" }}>{monthLabel(m)}</option>)}
+            {currentUser==="Gus"&&<button onClick={()=>setShowLinks(true)} style={{...btn(),background:t.surface2,color:t.textMuted,padding:"8px 10px",fontSize:13}}>🔗</button>}
+            <button onClick={()=>setShowSettings(true)} style={{...btn(),background:t.surface2,color:t.textMuted,padding:"8px 10px",fontSize:13}}>⚙️</button>
+            <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} style={{background:t.surface2,border:`1px solid ${t.border}`,color:t.text,borderRadius:8,padding:"8px 10px",fontSize:13}}>
+              {allMonths.map(m=><option key={m} value={m} style={{background:t.surface}}>{monthLabel(m)}</option>)}
             </select>
           </div>
         </div>
 
         {/* Balance cards */}
-        <div style={{ display:"flex", gap:12, marginBottom:12 }}>
-          {USERS.map(w=>{ const amt=w==="Gus"?bal.gus:bal.bet, color=indColor(w); return (
-            <div key={w} style={{ flex:1, background:"rgba(255,255,255,0.07)", borderRadius:16, padding:"14px 16px", border:`2px solid ${color}` }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
-                <span style={{ fontSize:15, fontWeight:700, color:userColor(w) }}>{w}</span>
-                <span style={{ width:11, height:11, borderRadius:"50%", background:color, display:"inline-block" }} />
+        <div style={{display:"flex",gap:10,marginBottom:10}}>
+          {USERS.map(w=>{
+            const amt=w==="Gus"?bal.gus:bal.bet;
+            const isDebtor=!bal.balanced&&w===bal.debtor;
+            const isCreditor=!bal.balanced&&w===bal.creditor;
+            const borderColor=bal.balanced?t.successBorder:isDebtor?t.danger:t.success;
+            return(
+              <div key={w} style={{flex:1,...card({padding:"12px 14px",border:`1.5px solid ${borderColor}`})}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <Avatar user={w} photo={w===currentUser?myPhoto:otherPhoto} size={24} t={t}/>
+                    <span style={{fontSize:14,fontWeight:700,color:t.text}}>{w}</span>
+                  </div>
+                  <span style={{width:9,height:9,borderRadius:"50%",background:borderColor,display:"inline-block"}}/>
+                </div>
+                <div style={{fontSize:21,fontWeight:700}}>{fmt(amt)}</div>
+                <div style={{fontSize:12,color:t.textMuted,marginTop:2}}>50% = {fmt(bal.half)}</div>
               </div>
-              <div style={{ fontSize:22, fontWeight:700 }}>{fmt(amt)}</div>
-              <div style={{ fontSize:12, color:"rgba(255,255,255,0.4)", marginTop:2 }}>50% = {fmt(bal.half)}</div>
-            </div>
-          );})}
+            );
+          })}
         </div>
 
-        {/* Nenas cards */}
-        <div style={{ display:"flex", gap:12, marginBottom:12 }}>
+        {/* Nenas */}
+        <div style={{display:"flex",gap:10,marginBottom:10}}>
           {[["Valen","🌟",ns.valenTotal],["Pili","💫",ns.piliTotal]].map(([n,icon,total])=>(
-            <div key={n} style={{ flex:1, background:"rgba(255,255,255,0.05)", borderRadius:14, padding:"12px 14px", border:`1px solid ${nenaColor(n)}44` }}>
-              <div style={{ fontSize:14, color:nenaColor(n), fontWeight:700 }}>{icon} {n}</div>
-              <div style={{ fontSize:18, fontWeight:700, marginTop:4 }}>{fmt(total)}</div>
+            <div key={n} style={{flex:1,...card({padding:"10px 14px",border:`1px solid ${nenaColor(n)}33`})}}>
+              <div style={{fontSize:13,color:nenaColor(n),fontWeight:700}}>{icon} {n}</div>
+              <div style={{fontSize:18,fontWeight:700,marginTop:4}}>{fmt(total)}</div>
             </div>
           ))}
         </div>
 
         {/* Status */}
-        <div style={{ background:bal.balanced?"rgba(34,197,94,0.15)":"rgba(239,68,68,0.15)", border:`1px solid ${bal.balanced?"#22c55e":"#ef4444"}`, borderRadius:14, padding:"12px 14px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-            <span style={{ fontSize:18 }}>{bal.balanced?"✅":"⚠️"}</span>
-            <span style={{ fontSize:14, color:bal.balanced?"#86efac":"#fca5a5" }}>
+        <div style={{background:bal.balanced?t.successBg:t.dangerBg,border:`1px solid ${bal.balanced?t.successBorder:t.dangerBorder}`,borderRadius:8,padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:16}}>{bal.balanced?"✅":"⚠️"}</span>
+            <span style={{fontSize:14,color:bal.balanced?t.success:t.danger}}>
               {bal.balanced?`Parejos · dif. ${fmt(bal.compensation)}`:`${bal.debtor} debe ${fmt(bal.remaining)} a ${bal.creditor}`}
             </span>
           </div>
-          {!bal.balanced&&!bal.settled&&(
-            <button onClick={()=>{ setPayForm(f=>({...f,amount:bal.remaining.toString(),month:filterMonth})); setShowPayModal(true); }}
-              style={{ background:"#6366f1", border:"none", color:"#fff", borderRadius:10, padding:"8px 14px", fontSize:13, cursor:"pointer", fontWeight:700 }}>Pagar</button>
+          {/* Botón pagar solo visible para el deudor */}
+          {!bal.balanced&&!bal.settled&&currentUser===bal.debtor&&(
+            <button onClick={()=>{setPayForm(f=>({...f,amount:bal.remaining.toString(),month:filterMonth}));setShowPayModal(true);}}
+              style={{...btn(),background:t.accent,color:"#fff",padding:"7px 14px",fontSize:13}}>Pagar</button>
           )}
         </div>
 
         {(accDebt.debtGus>0||accDebt.debtBet>0)&&(
-          <div style={{ marginTop:10, background:"rgba(251,191,36,0.1)", border:"1px solid #f59e0b", borderRadius:14, padding:"10px 14px", display:"flex", alignItems:"center", gap:8 }}>
-            <span style={{ fontSize:16 }}>📊</span>
-            <span style={{ fontSize:14, color:"#fcd34d" }}>Deuda acumulada: {accDebt.debtGus>0?`Gus debe ${fmt(accDebt.debtGus)}`:`Betiana debe ${fmt(accDebt.debtBet)}`}</span>
+          <div style={{marginTop:10,background:t.warnBg,border:`1px solid ${t.warnBorder}`,borderRadius:8,padding:"10px 14px",display:"flex",alignItems:"center",gap:8}}>
+            <span>📊</span>
+            <span style={{fontSize:14,color:t.warn}}>Deuda acumulada: {accDebt.debtGus>0?`Gus debe ${fmt(accDebt.debtGus)}`:`Betiana debe ${fmt(accDebt.debtBet)}`}</span>
           </div>
         )}
       </div>
 
       {/* NAV */}
-      <div style={{ display:"flex", background:"#111", borderBottom:"1px solid #222" }}>
-        {[["dashboard","🏠","Inicio"],["history","📋","Historial"],["summary","📊","Resumen"]].map(([v,icon,label])=>(
-          <button key={v} onClick={()=>setView(v)}
-            style={{ flex:1, background:"none", border:"none", padding:"14px 4px", color:view===v?"#a78bfa":"#666", fontSize:12, cursor:"pointer", borderBottom:view===v?"3px solid #a78bfa":"3px solid transparent", display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
-            <span style={{ fontSize:20 }}>{icon}</span>{label}
+      <div style={{display:"flex",background:t.nav,borderBottom:`1px solid ${t.border}`}}>
+        {[["dashboard","🏠","Inicio"],["history","📋","Historial"],["summary","📊","Resumen"]].map(([v,icon,lbl])=>(
+          <button key={v} onClick={()=>setView(v)} style={{flex:1,background:"none",border:"none",padding:"13px 4px",color:view===v?t.accent:t.textMuted,fontSize:12,cursor:"pointer",borderBottom:view===v?`2px solid ${t.accent}`:"2px solid transparent",display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+            <span style={{fontSize:19}}>{icon}</span>{lbl}
           </button>
         ))}
       </div>
 
-      <div style={{ padding:18, paddingBottom:100 }}>
+      <div style={{padding:18,paddingBottom:100}}>
 
         {/* DASHBOARD */}
         {view==="dashboard"&&(
           <div>
-            <div style={{ fontWeight:700, fontSize:16, marginBottom:16 }}>Últimos gastos · {monthLabel(filterMonth)}</div>
+            <div style={{fontWeight:700,fontSize:16,marginBottom:16}}>Últimos gastos · {monthLabel(filterMonth)}</div>
             {monthExp(filterMonth).length===0
-              ? <div style={{ textAlign:"center", padding:"50px 0", color:"#555", fontSize:16 }}>No hay gastos este mes</div>
-              : monthExp(filterMonth).map(e=>(
-                <div key={e.id} style={{ background:"#161616", border:"1px solid #252525", borderRadius:18, padding:"14px 16px", marginBottom:12, display:"flex", alignItems:"center", gap:14 }}>
-                  <div style={{ fontSize:28 }}>{catEmoji(e.category)}</div>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontWeight:600, fontSize:15, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.desc}</div>
-                    <div style={{ fontSize:13, color:"#666", marginTop:4, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+              ?<div style={{textAlign:"center",padding:"50px 0",color:t.textMuted,fontSize:16}}>No hay gastos este mes</div>
+              :monthExp(filterMonth).map(e=>(
+                <div key={e.id} style={{...card({padding:"14px 16px",marginBottom:10}),display:"flex",alignItems:"center",gap:14}}>
+                  <div style={{fontSize:26}}>{catEmoji(e.category)}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:600,fontSize:15,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.desc||e.description}</div>
+                    <div style={{fontSize:13,color:t.textMuted,marginTop:4,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                       <span>{e.date}</span>
-                      <span style={{ color:userColor(e.who), fontWeight:600 }}>{e.who}</span>
-                      {e.nena&&<span style={{ background:nenaBg(e.nena), color:nenaColor(e.nena), borderRadius:10, padding:"2px 8px", fontSize:12, fontWeight:700 }}>{e.nena}</span>}
-                      {gallery[e.id]&&<a href={gallery[e.id].link} target="_blank" rel="noreferrer" style={{ color:"#a78bfa", fontSize:12 }}>☁️ Ver</a>}
+                      <div style={{display:"flex",alignItems:"center",gap:4}}>
+                        <Avatar user={e.who} photo={e.who===currentUser?myPhoto:otherPhoto} size={18} t={t}/>
+                        <span style={{fontWeight:600,color:t.text,fontSize:13}}>{e.who}</span>
+                      </div>
+                      {e.nena&&<span style={{background:t.surface2,color:nenaColor(e.nena),borderRadius:6,padding:"1px 7px",fontSize:12,fontWeight:700,border:`1px solid ${nenaColor(e.nena)}44`}}>{e.nena}</span>}
+                      {gallery[e.id]&&<a href={gallery[e.id].link} target="_blank" rel="noreferrer" style={{color:t.accent,fontSize:12}}>☁️ Ver</a>}
                     </div>
                   </div>
-                  <div style={{ textAlign:"right" }}>
-                    <div style={{ fontWeight:700, fontSize:17 }}>{fmt(e.amount)}</div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontWeight:700,fontSize:17}}>{fmt(e.amount)}</div>
                     {e.who===currentUser&&(
-                      <div style={{ display:"flex", gap:6, marginTop:6, justifyContent:"flex-end" }}>
-                        <button onClick={()=>{ setForm({who:e.who,amount:e.amount.toString(),category:e.category,nena:e.nena||"Valen",desc:e.desc,date:e.date}); setEditing(e.id); setView("form"); }}
-                          style={{ background:"#252525", border:"none", color:"#a78bfa", borderRadius:10, padding:"5px 10px", fontSize:14, cursor:"pointer" }}>✏️</button>
-                        <button onClick={()=>setDeleteConfirm(e.id)}
-                          style={{ background:"#252525", border:"none", color:"#f87171", borderRadius:10, padding:"5px 10px", fontSize:14, cursor:"pointer" }}>🗑️</button>
+                      <div style={{display:"flex",gap:6,marginTop:6,justifyContent:"flex-end"}}>
+                        <button onClick={()=>{setForm({who:e.who,amount:e.amount.toString(),category:e.category,nena:e.nena||"Valen",desc:e.desc||e.description,date:e.date});setEditing(e.id);setView("form");}} style={{...btn(),background:t.surface2,color:t.accent,padding:"5px 10px",fontSize:13}}>✏️</button>
+                        <button onClick={()=>setDeleteConfirm(e.id)} style={{...btn(),background:t.surface2,color:t.danger,padding:"5px 10px",fontSize:13}}>🗑️</button>
                       </div>
                     )}
                   </div>
@@ -519,46 +617,46 @@ function App() {
         {/* HISTORY */}
         {view==="history"&&(
           <div>
-            <div style={{ display:"flex", gap:8, marginBottom:10, overflowX:"auto", paddingBottom:4 }}>
-              <button onClick={()=>setFilterCat("all")} style={{ background:filterCat==="all"?"#6366f1":"#1e1e1e", border:"none", color:"#fff", borderRadius:20, padding:"7px 14px", fontSize:13, cursor:"pointer", whiteSpace:"nowrap" }}>Todos</button>
+            <div style={{display:"flex",gap:8,marginBottom:10,overflowX:"auto",paddingBottom:4}}>
+              <button onClick={()=>setFilterCat("all")} style={{...btn(),background:filterCat==="all"?t.accent:t.surface2,color:filterCat==="all"?"#fff":t.textMuted,borderRadius:20,padding:"6px 14px",fontSize:13,whiteSpace:"nowrap"}}>Todos</button>
               {CATEGORIES.map(c=>(
-                <button key={c.id} onClick={()=>setFilterCat(c.id)}
-                  style={{ background:filterCat===c.id?"#6366f1":"#1e1e1e", border:"none", color:"#fff", borderRadius:20, padding:"7px 14px", fontSize:13, cursor:"pointer", whiteSpace:"nowrap" }}>
+                <button key={c.id} onClick={()=>setFilterCat(c.id)} style={{...btn(),background:filterCat===c.id?t.accent:t.surface2,color:filterCat===c.id?"#fff":t.textMuted,borderRadius:20,padding:"6px 14px",fontSize:13,whiteSpace:"nowrap"}}>
                   {c.emoji} {c.label.split("/")[0].trim()}
                 </button>
               ))}
             </div>
-            <div style={{ display:"flex", gap:8, marginBottom:16, overflowX:"auto", paddingBottom:4 }}>
-              <button onClick={()=>setFilterNena("all")} style={{ background:filterNena==="all"?"#a78bfa":"#1e1e1e", border:"none", color:"#fff", borderRadius:20, padding:"7px 14px", fontSize:13, cursor:"pointer", whiteSpace:"nowrap" }}>👧 Todas</button>
+            <div style={{display:"flex",gap:8,marginBottom:16,overflowX:"auto",paddingBottom:4}}>
+              <button onClick={()=>setFilterNena("all")} style={{...btn(),background:filterNena==="all"?t.accent:t.surface2,color:filterNena==="all"?"#fff":t.textMuted,borderRadius:20,padding:"6px 14px",fontSize:13,whiteSpace:"nowrap"}}>👧 Todas</button>
               {NENAS.map(n=>(
-                <button key={n} onClick={()=>setFilterNena(n)}
-                  style={{ background:filterNena===n?nenaColor(n):"#1e1e1e", border:"none", color:"#fff", borderRadius:20, padding:"7px 14px", fontSize:13, cursor:"pointer", whiteSpace:"nowrap" }}>
+                <button key={n} onClick={()=>setFilterNena(n)} style={{...btn(),background:filterNena===n?nenaColor(n):t.surface2,color:filterNena===n?"#fff":t.textMuted,borderRadius:20,padding:"6px 14px",fontSize:13,whiteSpace:"nowrap"}}>
                   {n==="Valen"?"🌟":n==="Pili"?"💫":"🤝"} {n}
                 </button>
               ))}
             </div>
             {filtered.length===0
-              ? <div style={{ textAlign:"center", padding:"50px 0", color:"#555", fontSize:16 }}>No hay gastos</div>
-              : filtered.map(e=>(
-                <div key={e.id} style={{ background:"#161616", border:"1px solid #252525", borderRadius:18, padding:"14px 16px", marginBottom:12, display:"flex", alignItems:"center", gap:14 }}>
-                  <div style={{ fontSize:26 }}>{catEmoji(e.category)}</div>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontWeight:600, fontSize:15, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.desc}</div>
-                    <div style={{ fontSize:13, color:"#666", marginTop:4, display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
-                      <span>{e.date}</span><span style={{ color:userColor(e.who), fontWeight:600 }}>{e.who}</span>
-                      {e.nena&&<span style={{ background:nenaBg(e.nena), color:nenaColor(e.nena), borderRadius:10, padding:"2px 8px", fontSize:12, fontWeight:700 }}>{e.nena}</span>}
-                      <span style={{ color:"#555" }}>{catLabel(e.category)}</span>
-                      {gallery[e.id]&&<a href={gallery[e.id].link} target="_blank" rel="noreferrer" style={{ color:"#a78bfa", fontSize:12 }}>☁️</a>}
+              ?<div style={{textAlign:"center",padding:"50px 0",color:t.textMuted,fontSize:16}}>No hay gastos</div>
+              :filtered.map(e=>(
+                <div key={e.id} style={{...card({padding:"14px 16px",marginBottom:10}),display:"flex",alignItems:"center",gap:14}}>
+                  <div style={{fontSize:24}}>{catEmoji(e.category)}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:600,fontSize:15,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.desc||e.description}</div>
+                    <div style={{fontSize:13,color:t.textMuted,marginTop:4,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                      <span>{e.date}</span>
+                      <div style={{display:"flex",alignItems:"center",gap:4}}>
+                        <Avatar user={e.who} photo={e.who===currentUser?myPhoto:otherPhoto} size={18} t={t}/>
+                        <span style={{fontWeight:600,color:t.text,fontSize:13}}>{e.who}</span>
+                      </div>
+                      {e.nena&&<span style={{background:t.surface2,color:nenaColor(e.nena),borderRadius:6,padding:"1px 7px",fontSize:12,fontWeight:700,border:`1px solid ${nenaColor(e.nena)}44`}}>{e.nena}</span>}
+                      <span style={{color:t.textFaint}}>{catLabel(e.category)}</span>
+                      {gallery[e.id]&&<a href={gallery[e.id].link} target="_blank" rel="noreferrer" style={{color:t.accent,fontSize:12}}>☁️</a>}
                     </div>
                   </div>
-                  <div style={{ textAlign:"right" }}>
-                    <div style={{ fontWeight:700, fontSize:16 }}>{fmt(e.amount)}</div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontWeight:700,fontSize:15}}>{fmt(e.amount)}</div>
                     {e.who===currentUser&&(
-                      <div style={{ display:"flex", gap:6, marginTop:6, justifyContent:"flex-end" }}>
-                        <button onClick={()=>{ setForm({who:e.who,amount:e.amount.toString(),category:e.category,nena:e.nena||"Valen",desc:e.desc,date:e.date}); setEditing(e.id); setView("form"); }}
-                          style={{ background:"#252525", border:"none", color:"#a78bfa", borderRadius:10, padding:"5px 10px", fontSize:14, cursor:"pointer" }}>✏️</button>
-                        <button onClick={()=>setDeleteConfirm(e.id)}
-                          style={{ background:"#252525", border:"none", color:"#f87171", borderRadius:10, padding:"5px 10px", fontSize:14, cursor:"pointer" }}>🗑️</button>
+                      <div style={{display:"flex",gap:6,marginTop:6,justifyContent:"flex-end"}}>
+                        <button onClick={()=>{setForm({who:e.who,amount:e.amount.toString(),category:e.category,nena:e.nena||"Valen",desc:e.desc||e.description,date:e.date});setEditing(e.id);setView("form");}} style={{...btn(),background:t.surface2,color:t.accent,padding:"5px 10px",fontSize:13}}>✏️</button>
+                        <button onClick={()=>setDeleteConfirm(e.id)} style={{...btn(),background:t.surface2,color:t.danger,padding:"5px 10px",fontSize:13}}>🗑️</button>
                       </div>
                     )}
                   </div>
@@ -570,85 +668,84 @@ function App() {
         {/* SUMMARY */}
         {view==="summary"&&(
           <div>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
-              <div style={{ fontWeight:700, fontSize:16 }}>Resumen · {monthLabel(filterMonth)}</div>
-              <button onClick={exportReport} style={{ background:"linear-gradient(135deg,#6366f1,#ec4899)", border:"none", color:"#fff", borderRadius:12, padding:"10px 16px", fontSize:14, cursor:"pointer", fontWeight:700 }}>
-                {gToken?"☁️ Exportar":"📥 Descargar"}
-              </button>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div style={{fontWeight:700,fontSize:16}}>Resumen · {monthLabel(filterMonth)}</div>
+              <button onClick={exportReport} style={{...btn(),background:t.accent,color:"#fff",fontSize:13}}>{gToken?"☁️ Exportar":"📥 Descargar"}</button>
             </div>
-            <div style={{ background:"#161616", border:"1px solid #252525", borderRadius:18, padding:18, marginBottom:14 }}>
+            <div style={{...card({padding:18,marginBottom:12})}}>
               {[["Total del mes",fmt(bal.total)],["50% cada uno",fmt(bal.half)]].map(([l,v])=>(
-                <div key={l} style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}>
-                  <span style={{ color:"#888", fontSize:15 }}>{l}</span><span style={{ fontWeight:700, fontSize:15 }}>{v}</span>
+                <div key={l} style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
+                  <span style={{color:t.textMuted,fontSize:15}}>{l}</span><span style={{fontWeight:700,fontSize:15}}>{v}</span>
                 </div>
               ))}
-              <div style={{ height:1, background:"#252525", margin:"12px 0" }} />
-              {USERS.map(w=>{ const amt=w==="Gus"?bal.gus:bal.bet, diff=amt-bal.half; return (
-                <div key={w} style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}>
-                  <span style={{ color:userColor(w), fontSize:15, fontWeight:700 }}>{w} gastó</span>
-                  <div><span style={{ fontWeight:700, fontSize:15 }}>{fmt(amt)}</span>
-                    <span style={{ fontSize:13, marginLeft:10, color:diff>TOLERANCE?"#ef4444":diff<-TOLERANCE?"#22c55e":"#888" }}>{diff>=0?`+${fmt(diff)}`:fmt(diff)}</span>
+              <div style={{height:1,background:t.border,margin:"10px 0"}}/>
+              {USERS.map(w=>{const amt=w==="Gus"?bal.gus:bal.bet,diff=amt-bal.half;return(
+                <div key={w} style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+                  <span style={{fontSize:15,fontWeight:700,color:t.text}}>{w} gastó</span>
+                  <div><span style={{fontWeight:700,fontSize:15}}>{fmt(amt)}</span>
+                    <span style={{fontSize:13,marginLeft:10,color:diff>TOLERANCE?t.danger:diff<-TOLERANCE?t.success:t.textMuted}}>{diff>=0?`+${fmt(diff)}`:fmt(diff)}</span>
                   </div>
                 </div>
               );})}
             </div>
 
-            {/* Nenas */}
-            <div style={{ fontWeight:700, fontSize:15, marginBottom:12 }}>👧 Gastos por niña</div>
-            <div style={{ display:"flex", gap:12, marginBottom:14 }}>
+            <div style={{fontWeight:700,fontSize:15,marginBottom:12}}>👧 Gastos por niña</div>
+            <div style={{display:"flex",gap:10,marginBottom:12}}>
               {[["Valen","🌟",ns.valenTotal,ns.valenCats],["Pili","💫",ns.piliTotal,ns.piliCats]].map(([n,icon,total,cats])=>(
-                <div key={n} style={{ flex:1, background:"#161616", border:`1px solid ${nenaColor(n)}44`, borderRadius:16, padding:16 }}>
-                  <div style={{ color:nenaColor(n), fontWeight:700, fontSize:15, marginBottom:8 }}>{icon} {n}</div>
-                  <div style={{ fontSize:22, fontWeight:700, marginBottom:10 }}>{fmt(total)}</div>
+                <div key={n} style={{flex:1,...card({padding:14,border:`1px solid ${nenaColor(n)}33`})}}>
+                  <div style={{color:nenaColor(n),fontWeight:700,fontSize:14,marginBottom:6}}>{icon} {n}</div>
+                  <div style={{fontSize:20,fontWeight:700,marginBottom:8}}>{fmt(total)}</div>
                   {cats.map(c=>(
-                    <div key={c.id} style={{ display:"flex", justifyContent:"space-between", fontSize:13, color:"#888", marginBottom:6 }}>
+                    <div key={c.id} style={{display:"flex",justifyContent:"space-between",fontSize:13,color:t.textMuted,marginBottom:5}}>
                       <span>{c.emoji} {c.label.split("/")[0].trim()}</span>
-                      <span style={{ color:"#ccc", fontWeight:600 }}>{fmt(c.total)}</span>
+                      <span style={{color:t.text,fontWeight:600}}>{fmt(c.total)}</span>
                     </div>
                   ))}
-                  {cats.length===0&&<div style={{ fontSize:13, color:"#555" }}>Sin gastos</div>}
+                  {cats.length===0&&<div style={{fontSize:13,color:t.textFaint}}>Sin gastos</div>}
                 </div>
               ))}
             </div>
 
-            <div style={{ background:bal.settled?"rgba(34,197,94,0.1)":"rgba(239,68,68,0.1)", border:`1px solid ${bal.settled?"#22c55e":"#ef4444"}`, borderRadius:18, padding:18, marginBottom:14, textAlign:"center" }}>
+            <div style={{background:bal.settled?t.successBg:t.dangerBg,border:`1px solid ${bal.settled?t.successBorder:t.dangerBorder}`,borderRadius:10,padding:18,marginBottom:12,textAlign:"center"}}>
               {bal.settled
-                ? <><div style={{ fontSize:36 }}>✅</div><div style={{ fontWeight:700, fontSize:16, color:"#86efac", marginTop:8 }}>¡Compensado!</div></>
-                : <><div style={{ fontSize:36 }}>💸</div>
-                  <div style={{ fontWeight:700, fontSize:16, color:"#fca5a5", marginTop:8 }}>{bal.debtor} debe {fmt(bal.remaining)} a {bal.creditor}</div>
-                  {bal.paid>0&&<div style={{ color:"#888", fontSize:14, marginTop:6 }}>Ya pagó {fmt(bal.paid)} de {fmt(bal.compensation)}</div>}
-                  <button onClick={()=>{ setPayForm(f=>({...f,amount:bal.remaining.toString(),month:filterMonth})); setShowPayModal(true); }}
-                    style={{ marginTop:14, background:"linear-gradient(135deg,#6366f1,#ec4899)", border:"none", color:"#fff", borderRadius:12, padding:"12px 24px", fontSize:15, fontWeight:700, cursor:"pointer" }}>
-                    💸 Registrar pago
-                  </button>
+                ?<><div style={{fontSize:32}}>✅</div><div style={{fontWeight:700,fontSize:16,color:t.success,marginTop:8}}>¡Compensado!</div></>
+                :<><div style={{fontSize:32}}>💸</div>
+                  <div style={{fontWeight:700,fontSize:15,color:t.danger,marginTop:8}}>{bal.debtor} debe {fmt(bal.remaining)} a {bal.creditor}</div>
+                  {bal.paid>0&&<div style={{color:t.textMuted,fontSize:14,marginTop:6}}>Ya pagó {fmt(bal.paid)} de {fmt(bal.compensation)}</div>}
+                  {currentUser===bal.debtor&&(
+                    <button onClick={()=>{setPayForm(f=>({...f,amount:bal.remaining.toString(),month:filterMonth}));setShowPayModal(true);}}
+                      style={{...btn(),marginTop:14,background:t.accent,color:"#fff",padding:"12px 24px",fontSize:15}}>
+                      💸 Registrar pago
+                    </button>
+                  )}
                 </>}
             </div>
 
             {(accDebt.debtGus>0||accDebt.debtBet>0)&&(
-              <div style={{ background:"rgba(251,191,36,0.08)", border:"1px solid #f59e0b", borderRadius:16, padding:16, marginBottom:14 }}>
-                <div style={{ fontWeight:700, fontSize:15, color:"#fcd34d", marginBottom:6 }}>📊 Deuda acumulada</div>
-                {accDebt.debtGus>0&&<div style={{ fontSize:15, color:"#fca5a5" }}>Gus debe {fmt(accDebt.debtGus)}</div>}
-                {accDebt.debtBet>0&&<div style={{ fontSize:15, color:"#fca5a5" }}>Betiana debe {fmt(accDebt.debtBet)}</div>}
+              <div style={{background:t.warnBg,border:`1px solid ${t.warnBorder}`,borderRadius:10,padding:14,marginBottom:12}}>
+                <div style={{fontWeight:700,fontSize:14,color:t.warn,marginBottom:4}}>📊 Deuda acumulada</div>
+                {accDebt.debtGus>0&&<div style={{fontSize:14,color:t.danger}}>Gus debe {fmt(accDebt.debtGus)}</div>}
+                {accDebt.debtBet>0&&<div style={{fontSize:14,color:t.danger}}>Betiana debe {fmt(accDebt.debtBet)}</div>}
               </div>
             )}
 
             {monthPays(filterMonth).length>0&&(
-              <div style={{ marginBottom:14 }}>
-                <div style={{ fontWeight:700, fontSize:15, marginBottom:10 }}>Pagos registrados</div>
+              <div style={{marginBottom:12}}>
+                <div style={{fontWeight:700,fontSize:15,marginBottom:10}}>Pagos registrados</div>
                 {monthPays(filterMonth).map(p=>(
-                  <div key={p.id} style={{ background:"#161616", border:"1px solid #1a3a1a", borderRadius:14, padding:"12px 16px", marginBottom:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                    <div><div style={{ fontSize:15, fontWeight:600 }}>💸 {p.note||"Transferencia"}</div><div style={{ fontSize:13, color:"#666", marginTop:4 }}>{p.date}</div></div>
-                    <div style={{ fontWeight:700, fontSize:16, color:"#86efac" }}>{fmt(p.amount)}</div>
+                  <div key={p.id} style={{...card({padding:"12px 16px",marginBottom:8,border:`1px solid ${t.successBorder}33`}),display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div><div style={{fontSize:15,fontWeight:600}}>💸 {p.note||"Transferencia"}</div><div style={{fontSize:13,color:t.textMuted,marginTop:3}}>{p.date}</div></div>
+                    <div style={{fontWeight:700,fontSize:16,color:t.success}}>{fmt(p.amount)}</div>
                   </div>
                 ))}
               </div>
             )}
 
-            <div style={{ fontWeight:700, fontSize:15, marginBottom:12 }}>Por categoría</div>
-            {CATEGORIES.map(cat=>{ const total=monthExp(filterMonth).filter(e=>e.category===cat.id).reduce((s,e)=>s+e.amount,0); if(!total) return null; const pct=bal.total>0?(total/bal.total)*100:0; return (
-              <div key={cat.id} style={{ background:"#161616", border:"1px solid #252525", borderRadius:14, padding:"12px 16px", marginBottom:10 }}>
-                <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}><span style={{ fontSize:15 }}>{cat.emoji} {cat.label}</span><span style={{ fontWeight:700, fontSize:15 }}>{fmt(total)}</span></div>
-                <div style={{ background:"#252525", borderRadius:6, height:6 }}><div style={{ background:"#6366f1", height:6, borderRadius:6, width:`${pct}%` }} /></div>
+            <div style={{fontWeight:700,fontSize:15,marginBottom:12}}>Por categoría</div>
+            {CATEGORIES.map(cat=>{const total=monthExp(filterMonth).filter(e=>e.category===cat.id).reduce((s,e)=>s+Number(e.amount),0);if(!total) return null;const pct=bal.total>0?(total/bal.total)*100:0;return(
+              <div key={cat.id} style={{...card({padding:"12px 16px",marginBottom:8})}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}><span style={{fontSize:15}}>{cat.emoji} {cat.label}</span><span style={{fontWeight:700,fontSize:15}}>{fmt(total)}</span></div>
+                <div style={{background:t.surface2,borderRadius:4,height:5}}><div style={{background:t.accent,height:5,borderRadius:4,width:`${pct}%`}}/></div>
               </div>
             );})}
           </div>
@@ -657,75 +754,58 @@ function App() {
         {/* FORM */}
         {view==="form"&&(
           <div>
-            <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:24 }}>
-              <button onClick={()=>{ resetForm(); setView("dashboard"); }} style={{ background:"#1e1e1e", border:"none", color:"#ccc", borderRadius:12, padding:"10px 16px", cursor:"pointer", fontSize:15 }}>← Volver</button>
-              <div style={{ fontWeight:700, fontSize:18 }}>{editing?"Editar gasto":"Nuevo gasto"}</div>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:24}}>
+              <button onClick={()=>{resetForm();setView("dashboard");}} style={{...btn(),background:t.surface2,color:t.textMuted}}>← Volver</button>
+              <div style={{fontWeight:700,fontSize:17}}>{editing?"Editar gasto":"Nuevo gasto"}</div>
             </div>
 
-            <div style={{ background:userBg(currentUser), border:`2px solid ${userColor(currentUser)}`, borderRadius:14, padding:"12px 16px", marginBottom:18, display:"flex", alignItems:"center", gap:12 }}>
-              <span style={{ fontSize:26 }}>{currentUser==="Gus"?"👨":"👩"}</span>
+            <div style={{...card({padding:"12px 16px",marginBottom:18,border:`1.5px solid ${t.accent}`}),display:"flex",alignItems:"center",gap:12}}>
+              <Avatar user={currentUser} photo={myPhoto} size={40} t={t}/>
               <div>
-                <div style={{ fontSize:13, color:"rgba(255,255,255,0.5)" }}>Cargando como</div>
-                <div style={{ fontWeight:700, color:userColor(currentUser), fontSize:18 }}>{currentUser}</div>
+                <div style={{fontSize:13,color:t.textMuted}}>Cargando como</div>
+                <div style={{fontWeight:700,color:t.accent,fontSize:17}}>{currentUser}</div>
               </div>
             </div>
 
             {!editing&&(
               <>
-                <input type="file" accept="image/*,application/pdf" ref={fileRef} style={{ display:"none" }}
-                  onChange={e=>{ if(!e.target.files[0]) return; const f=e.target.files[0]; scanFile(f,p=>setForm(prev=>({...prev,amount:p.amount>0?p.amount.toString():prev.amount,desc:p.desc||prev.desc,date:p.date||prev.date,category:p.category||prev.category,_pendingFile:f})),setScanLoading); }} />
-                <button onClick={()=>fileRef.current.click()} disabled={scanLoading}
-                  style={{ width:"100%", background:"#1e1b4b", border:"2px dashed #4f46e5", borderRadius:16, padding:18, color:"#a78bfa", fontSize:15, cursor:"pointer", marginBottom:20, display:"flex", alignItems:"center", justifyContent:"center", gap:10, boxSizing:"border-box" }}>
+                <input type="file" accept="image/*,application/pdf" ref={fileRef} style={{display:"none"}} onChange={e=>{if(!e.target.files[0]) return;const f=e.target.files[0];scanFile(f,p=>setForm(prev=>({...prev,amount:p.amount>0?p.amount.toString():prev.amount,desc:p.desc||prev.desc,date:p.date||prev.date,category:p.category||prev.category,_pendingFile:f})),setScanLoading);}}/>
+                <button onClick={()=>fileRef.current.click()} disabled={scanLoading} style={{...btn(),width:"100%",background:t.accentBg,border:`1.5px dashed ${t.accent}`,color:t.accent,padding:18,marginBottom:20,display:"flex",alignItems:"center",justifyContent:"center",gap:10,boxSizing:"border-box"}}>
                   {scanLoading?"⏳ Escaneando...":`📷 Subir foto, captura o PDF${gToken?" (→ Drive)":""}`}
                 </button>
               </>
             )}
 
-            {/* Selector niña */}
-            <div style={{ marginBottom:18 }}>
-              <label style={{ fontSize:15, color:"#888", display:"block", marginBottom:10 }}>¿Para quién es el gasto?</label>
-              <div style={{ display:"flex", gap:10 }}>
+            <div style={{marginBottom:18}}>
+              <label style={label()}>¿Para quién es el gasto?</label>
+              <div style={{display:"flex",gap:10}}>
                 {NENAS.map(n=>(
                   <button key={n} onClick={()=>setForm(f=>({...f,nena:n}))}
-                    style={{ flex:1, background:form.nena===n?nenaBg(n):"#1e1e1e", border:`2px solid ${form.nena===n?nenaColor(n):"#2a2a2a"}`, color:form.nena===n?nenaColor(n):"#888", borderRadius:14, padding:"14px 6px", fontSize:14, fontWeight:700, cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
-                    <span style={{ fontSize:22 }}>{n==="Valen"?"🌟":n==="Pili"?"💫":"🤝"}</span>{n}
+                    style={{...btn(),flex:1,background:form.nena===n?t.surface2:t.surface,border:`2px solid ${form.nena===n?nenaColor(n):t.border}`,color:form.nena===n?nenaColor(n):t.textMuted,padding:"14px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+                    <span style={{fontSize:22}}>{n==="Valen"?"🌟":n==="Pili"?"💫":"🤝"}</span>
+                    <span style={{fontSize:13}}>{n}</span>
                   </button>
                 ))}
               </div>
             </div>
 
-            <div style={{ marginBottom:16 }}>
-              <label style={{ fontSize:15, color:"#888", display:"block", marginBottom:8 }}>Monto (ARS)</label>
-              <input type="number" value={form.amount} onChange={e=>setForm(f=>({...f,amount:e.target.value}))} placeholder="0"
-                style={{ width:"100%", background:"#1a1a1a", border:"1px solid #2a2a2a", borderRadius:14, padding:"16px 18px", color:"#fff", fontSize:24, fontWeight:700, boxSizing:"border-box" }} />
-            </div>
+            <div style={{marginBottom:16}}><label style={label()}>Monto (ARS)</label><input type="number" value={form.amount} onChange={e=>setForm(f=>({...f,amount:e.target.value}))} placeholder="0" style={inp({fontSize:24,fontWeight:700})}/></div>
+            <div style={{marginBottom:16}}><label style={label()}>Descripción</label><input value={form.desc} onChange={e=>setForm(f=>({...f,desc:e.target.value}))} placeholder="Ej: Cuota del colegio..." style={inp()}/></div>
 
-            <div style={{ marginBottom:16 }}>
-              <label style={{ fontSize:15, color:"#888", display:"block", marginBottom:8 }}>Descripción</label>
-              <input value={form.desc} onChange={e=>setForm(f=>({...f,desc:e.target.value}))} placeholder="Ej: Cuota del colegio..."
-                style={{ width:"100%", background:"#1a1a1a", border:"1px solid #2a2a2a", borderRadius:14, padding:"16px 18px", color:"#fff", fontSize:16, boxSizing:"border-box" }} />
-            </div>
-
-            <div style={{ marginBottom:16 }}>
-              <label style={{ fontSize:15, color:"#888", display:"block", marginBottom:10 }}>Categoría</label>
-              <div style={{ display:"flex", flexWrap:"wrap", gap:10 }}>
+            <div style={{marginBottom:16}}>
+              <label style={label()}>Categoría</label>
+              <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
                 {CATEGORIES.map(c=>(
-                  <button key={c.id} onClick={()=>setForm(f=>({...f,category:c.id}))}
-                    style={{ background:form.category===c.id?"#4f46e5":"#1e1e1e", border:`1px solid ${form.category===c.id?"#6366f1":"#2a2a2a"}`, color:"#fff", borderRadius:22, padding:"8px 16px", fontSize:14, cursor:"pointer" }}>
+                  <button key={c.id} onClick={()=>setForm(f=>({...f,category:c.id}))} style={{...btn(),background:form.category===c.id?t.accent:t.surface2,color:form.category===c.id?"#fff":t.textMuted,borderRadius:20,padding:"7px 14px",fontSize:13}}>
                     {c.emoji} {c.label.split("/")[0].trim()}
                   </button>
                 ))}
               </div>
             </div>
 
-            <div style={{ marginBottom:24 }}>
-              <label style={{ fontSize:15, color:"#888", display:"block", marginBottom:8 }}>Fecha</label>
-              <input type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))}
-                style={{ width:"100%", background:"#1a1a1a", border:"1px solid #2a2a2a", borderRadius:14, padding:"16px 18px", color:"#fff", fontSize:16, boxSizing:"border-box" }} />
-            </div>
+            <div style={{marginBottom:24}}><label style={label()}>Fecha</label><input type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} style={inp()}/></div>
 
-            <button onClick={saveExpense}
-              style={{ width:"100%", background:"linear-gradient(135deg,#6366f1,#ec4899)", border:"none", color:"#fff", borderRadius:16, padding:18, fontSize:17, fontWeight:700, cursor:"pointer" }}>
+            <button onClick={()=>saveExpense(false)} style={{...btn(),width:"100%",background:t.accent,color:"#fff",padding:18,fontSize:17}}>
               {editing?"💾 Guardar cambios":"✅ Cargar gasto"}
             </button>
           </div>
@@ -733,16 +813,13 @@ function App() {
       </div>
 
       {view!=="form"&&(
-        <button onClick={()=>{ resetForm(); setView("form"); }}
-          style={{ position:"fixed", bottom:28, right:24, width:64, height:64, borderRadius:"50%", background:"linear-gradient(135deg,#6366f1,#ec4899)", border:"none", color:"#fff", fontSize:32, cursor:"pointer", boxShadow:"0 4px 24px rgba(99,102,241,0.6)", display:"flex", alignItems:"center", justifyContent:"center" }}>
-          +
-        </button>
+        <button onClick={()=>{resetForm();setView("form");}} style={{position:"fixed",bottom:28,right:24,width:60,height:60,borderRadius:"50%",background:t.accent,border:"none",color:"#fff",fontSize:30,cursor:"pointer",boxShadow:`0 4px 20px ${t.accent}66`,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
       )}
     </div>
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
 </body>
 </html>
