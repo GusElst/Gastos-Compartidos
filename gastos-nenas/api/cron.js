@@ -1,3 +1,5 @@
+const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT  = process.env.TELEGRAM_CHAT_ID;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const CRON_SECRET  = process.env.CRON_SECRET;
@@ -33,6 +35,24 @@ const CATEGORIES = [
   { id:"otros",       label:"Otros",                  emoji:"📦" },
 ];
 const TOLERANCE = 2000;
+
+const sendTelegram = async (text) => {
+  if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: TELEGRAM_CHAT,
+        text,
+        parse_mode: "HTML",
+      }),
+    });
+  } catch (e) {
+    console.error("Telegram error:", e);
+  }
+};
+
 
 const isLastDayOfMonth = () => {
   const tomorrow = new Date();
@@ -308,6 +328,25 @@ const closeMonth = async (targetMonth) => {
   });
 
   console.log(`✅ Mes ${targetMonth} cerrado. Settled: ${settled}`);
+
+  // Notificación Telegram
+  const emoji = settled ? "✅" : "⚠️";
+  const estado = settled
+    ? "compensado"
+    : `${debtor} debe $${remaining.toLocaleString("es-AR")} a ${creditor}`;
+  await sendTelegram(
+`👧 <b>Cierre mensual — ${monthLabel(targetMonth)}</b>
+
+💰 Total del mes: <b>$${(totalGus + totalBet).toLocaleString("es-AR")}</b>
+👨 Gus: $${totalGus.toLocaleString("es-AR")}
+👩 Betiana: $${totalBet.toLocaleString("es-AR")}
+
+${emoji} Estado: <b>${estado}</b>
+
+📦 <b>Recordatorio:</b> Hacé el backup de los comprobantes de ${monthLabel(targetMonth)} en Drive.
+🔗 <a href="${reportUrl}">Ver reporte completo</a>`
+  );
+
   return { success: true, month: targetMonth, settled, remaining };
 };
 
