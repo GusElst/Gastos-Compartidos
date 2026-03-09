@@ -154,6 +154,9 @@ function App() {
   const [pendingAlert,  setPendingAlert]  = useState(null); // meses sin compensar
   const [showSearch,    setShowSearch]    = useState(false);
   const [searchQuery,   setSearchQuery]   = useState("");
+  const [searchCat,     setSearchCat]     = useState("all");
+  const [searchNena,    setSearchNena]    = useState("all");
+  const [searchWho,     setSearchWho]     = useState("all");
   const fileRef    = useRef();
   const payFileRef = useRef();
   const photoRef   = useRef();
@@ -474,49 +477,7 @@ Reglas:
       {uploadingFile&&<div style={{position:"fixed",top:66,left:"50%",transform:"translateX(-50%)",background:t.accentBg,color:t.accent,padding:"10px 20px",borderRadius:8,fontSize:14,zIndex:100,border:`1px solid ${t.accent}`}}>☁️ Subiendo archivo...</div>}
 
       {/* SEARCH BAR */}
-      {showSearch&&(
-        <div style={{padding:"12px 18px",background:t.surface,borderBottom:`1px solid ${t.border}`}}>
-          <input
-            autoFocus
-            value={searchQuery}
-            onChange={e=>setSearchQuery(e.target.value)}
-            placeholder="Buscar por descripción, monto o nombre..."
-            style={{width:"100%",background:t.surface2,border:`1px solid ${t.border}`,borderRadius:8,padding:"12px 16px",color:t.text,fontSize:15,boxSizing:"border-box"}}
-          />
-          {searchQuery.trim().length>=2&&(()=>{
-            const q=searchQuery.trim().toLowerCase();
-            const results=expenses.filter(e=>{
-              const desc=(e.desc||e.description||"").toLowerCase();
-              const amt=String(e.amount);
-              const who=(e.who||"").toLowerCase();
-              return desc.includes(q)||amt.includes(q)||who.includes(q);
-            });
-            return(
-              <div style={{marginTop:12,maxHeight:400,overflowY:"auto"}}>
-                <div style={{fontSize:13,color:t.textMuted,marginBottom:8}}>{results.length} resultado{results.length!==1?"s":""}</div>
-                {results.length===0
-                  ?<div style={{textAlign:"center",padding:"20px 0",color:t.textMuted,fontSize:14}}>Sin resultados</div>
-                  :results.map(e=>(
-                    <div key={e.id} style={{background:t.surface,border:`1px solid ${t.border}`,borderRadius:10,padding:"12px 14px",marginBottom:8,display:"flex",alignItems:"center",gap:12}}>
-                      <div style={{fontSize:22,flexShrink:0}}>{CATEGORIES.find(c=>c.id===e.category)?.emoji||"📦"}</div>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontWeight:600,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.desc||e.description}</div>
-                        <div style={{fontSize:12,color:t.textMuted,marginTop:3,display:"flex",gap:8,flexWrap:"wrap"}}>
-                          <span>{e.date}</span>
-                          <span style={{fontWeight:600,color:t.text}}>{e.who}</span>
-                          {e.nena&&<span style={{color:nenaColor(e.nena),fontWeight:700}}>{e.nena}</span>}
-                          {gallery[e.id]&&<a href={gallery[e.id].link} target="_blank" rel="noreferrer" style={{color:t.accent}}>🧾</a>}
-                        </div>
-                      </div>
-                      <div style={{fontWeight:700,fontSize:15,flexShrink:0}}>{fmt(e.amount)}</div>
-                    </div>
-                  ))
-                }
-              </div>
-            );
-          })()}
-        </div>
-      )}
+
 
       {/* Banner compensación pendiente */}
       {pendingAlert&&pendingAlert.length>0&&(
@@ -652,7 +613,7 @@ Reglas:
             </div>
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            <button onClick={()=>{setShowSearch(s=>!s);setSearchQuery("");}} style={{...btn(),background:showSearch?t.accent:t.surface2,color:showSearch?"#fff":t.textMuted,padding:"8px 10px",fontSize:13}}>🔍</button>
+
             {currentUser==="Gus"&&<button onClick={()=>setShowLinks(true)} style={{...btn(),background:t.surface2,color:t.textMuted,padding:"8px 10px",fontSize:13}}>🔗</button>}
             <button onClick={()=>setShowSettings(true)} style={{...btn(),background:t.surface2,color:t.textMuted,padding:"8px 10px",fontSize:13}}>⚙️</button>
             <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)}
@@ -724,8 +685,8 @@ Reglas:
 
       {/* NAV */}
       <div style={{display:"flex",background:t.nav,borderBottom:`1px solid ${t.border}`}}>
-        {[["dashboard","🏠","Inicio"],["history","📋","Historial"],["summary","📊","Resumen"],["archivo","📁","Archivo"]].map(([v,icon,lbl])=>(
-          <button key={v} onClick={()=>setView(v)}
+        {[["dashboard","🏠","Inicio"],["history","📋","Historial"],["summary","📊","Resumen"],["archivo","📁","Archivo"],["search","🔍","Buscar"]].map(([v,icon,lbl])=>(
+          <button key={v} onClick={()=>{setView(v);if(v==="search"){setSearchQuery("");setSearchCat("all");setSearchNena("all");setSearchWho("all");}}}
             style={{flex:1,background:"none",border:"none",padding:"13px 4px",color:view===v?t.accent:t.textMuted,fontSize:11,cursor:"pointer",borderBottom:view===v?`2px solid ${t.accent}`:"2px solid transparent",display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
             <span style={{fontSize:18}}>{icon}</span>{lbl}
           </button>
@@ -939,6 +900,111 @@ Reglas:
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* BUSCAR */}
+        {view==="search"&&(
+          <div>
+            <div style={{fontWeight:700,fontSize:16,marginBottom:16}}>🔍 Buscar gastos</div>
+
+            {/* Input */}
+            <div style={{marginBottom:14}}>
+              <input
+                autoFocus
+                value={searchQuery}
+                onChange={e=>setSearchQuery(e.target.value)}
+                placeholder="Descripción, monto o nombre..."
+                style={{width:"100%",background:t.surface2,border:`1.5px solid ${searchQuery?t.accent:t.border}`,borderRadius:10,padding:"14px 16px",color:t.text,fontSize:15,boxSizing:"border-box",outline:"none"}}
+              />
+            </div>
+
+            {/* Filtro: Categoría */}
+            <div style={{marginBottom:10}}>
+              <div style={{fontSize:12,color:t.textMuted,marginBottom:6,fontWeight:600}}>CATEGORÍA</div>
+              <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
+                <button onClick={()=>setSearchCat("all")} style={{...btn(),background:searchCat==="all"?t.accent:t.surface2,color:searchCat==="all"?"#fff":t.textMuted,borderRadius:20,padding:"5px 12px",fontSize:12,whiteSpace:"nowrap"}}>Todas</button>
+                {CATEGORIES.map(c=>(
+                  <button key={c.id} onClick={()=>setSearchCat(c.id=== searchCat?"all":c.id)} style={{...btn(),background:searchCat===c.id?t.accent:t.surface2,color:searchCat===c.id?"#fff":t.textMuted,borderRadius:20,padding:"5px 12px",fontSize:12,whiteSpace:"nowrap"}}>
+                    {c.emoji} {c.label.split("/")[0].trim()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Filtro: Para quién */}
+            <div style={{marginBottom:10}}>
+              <div style={{fontSize:12,color:t.textMuted,marginBottom:6,fontWeight:600}}>PARA QUIÉN</div>
+              <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
+                <button onClick={()=>setSearchNena("all")} style={{...btn(),background:searchNena==="all"?t.accent:t.surface2,color:searchNena==="all"?"#fff":t.textMuted,borderRadius:20,padding:"5px 12px",fontSize:12,whiteSpace:"nowrap"}}>Todas</button>
+                {DESTINATARIOS.map(n=>(
+                  <button key={n} onClick={()=>setSearchNena(n===searchNena?"all":n)} style={{...btn(),background:searchNena===n?nenaColor(n):t.surface2,color:searchNena===n?"#fff":t.textMuted,borderRadius:20,padding:"5px 12px",fontSize:12,whiteSpace:"nowrap"}}>
+                    {n==="Valen"?"🌟":n==="Pili"?"💫":n==="Frida"?"🐱":"🤝"} {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Filtro: Quién pagó */}
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:12,color:t.textMuted,marginBottom:6,fontWeight:600}}>QUIÉN PAGÓ</div>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={()=>setSearchWho("all")} style={{...btn(),background:searchWho==="all"?t.accent:t.surface2,color:searchWho==="all"?"#fff":t.textMuted,borderRadius:20,padding:"5px 12px",fontSize:12}}>Ambos</button>
+                {USERS.map(u=>(
+                  <button key={u} onClick={()=>setSearchWho(u===searchWho?"all":u)} style={{...btn(),background:searchWho===u?t.accent:t.surface2,color:searchWho===u?"#fff":t.textMuted,borderRadius:20,padding:"5px 12px",fontSize:12}}>
+                    {u}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Resultados */}
+            {(()=>{
+              const q=searchQuery.trim().toLowerCase();
+              const results=expenses.filter(e=>{
+                const desc=(e.desc||e.description||"").toLowerCase();
+                const amt=String(e.amount);
+                const who=(e.who||"").toLowerCase();
+                const matchText=q.length<2||desc.includes(q)||amt.includes(q)||who.includes(q);
+                const matchCat=searchCat==="all"||e.category===searchCat;
+                const matchNena=searchNena==="all"||e.nena===searchNena;
+                const matchWho=searchWho==="all"||e.who===searchWho;
+                return matchText&&matchCat&&matchNena&&matchWho&&!e.cancelled;
+              }).sort((a,b)=>b.date.localeCompare(a.date));
+
+              const hasFilters=q.length>=2||searchCat!=="all"||searchNena!=="all"||searchWho!=="all";
+              if(!hasFilters) return(
+                <div style={{textAlign:"center",padding:"40px 0",color:t.textMuted}}>
+                  <div style={{fontSize:40,marginBottom:12}}>🔍</div>
+                  <div style={{fontSize:14}}>Escribí algo o seleccioná un filtro</div>
+                </div>
+              );
+
+              return(
+                <div>
+                  <div style={{fontSize:13,color:t.textMuted,marginBottom:10}}>{results.length} resultado{results.length!==1?"s":""} en todos los meses</div>
+                  {results.length===0
+                    ?<div style={{textAlign:"center",padding:"30px 0",color:t.textMuted,fontSize:14}}>Sin resultados</div>
+                    :results.map(e=>(
+                      <div key={e.id} style={{...card({padding:"14px",marginBottom:8}),display:"flex",alignItems:"center",gap:12}}>
+                        <div style={{fontSize:24,flexShrink:0}}>{CATEGORIES.find(c=>c.id===e.category)?.emoji||"📦"}</div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontWeight:600,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.desc||e.description}</div>
+                          <div style={{fontSize:12,color:t.textMuted,marginTop:3,display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                            <span style={{background:t.surface2,borderRadius:4,padding:"1px 6px"}}>{monthLabel(e.date.slice(0,7))}</span>
+                            <span>{e.date}</span>
+                            <span style={{fontWeight:600,color:t.text}}>{e.who}</span>
+                            {e.nena&&<span style={{color:nenaColor(e.nena),fontWeight:700,border:`1px solid ${nenaColor(e.nena)}44`,borderRadius:4,padding:"1px 6px"}}>{e.nena}</span>}
+                            {gallery[e.id]&&<a href={gallery[e.id].link} target="_blank" rel="noreferrer" style={{color:t.accent}}>🧾</a>}
+                          </div>
+                        </div>
+                        <div style={{fontWeight:700,fontSize:15,flexShrink:0,color:t.text}}>{fmt(e.amount)}</div>
+                      </div>
+                    ))
+                  }
+                </div>
+              );
+            })()}
           </div>
         )}
 
