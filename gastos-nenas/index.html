@@ -152,6 +152,8 @@ function App() {
   const [showLinks,     setShowLinks]     = useState(false);
   const [showSettings,  setShowSettings]  = useState(false);
   const [pendingAlert,  setPendingAlert]  = useState(null); // meses sin compensar
+  const [showSearch,    setShowSearch]    = useState(false);
+  const [searchQuery,   setSearchQuery]   = useState("");
   const fileRef    = useRef();
   const payFileRef = useRef();
   const photoRef   = useRef();
@@ -471,6 +473,51 @@ Reglas:
       {toast&&<div style={{position:"fixed",top:20,left:"50%",transform:"translateX(-50%)",background:toast.type==="err"?t.dangerBorder:t.successBorder,color:"#fff",padding:"12px 24px",borderRadius:8,fontSize:15,zIndex:100,whiteSpace:"nowrap",boxShadow:"0 4px 20px rgba(0,0,0,0.3)"}}>{toast.msg}</div>}
       {uploadingFile&&<div style={{position:"fixed",top:66,left:"50%",transform:"translateX(-50%)",background:t.accentBg,color:t.accent,padding:"10px 20px",borderRadius:8,fontSize:14,zIndex:100,border:`1px solid ${t.accent}`}}>☁️ Subiendo archivo...</div>}
 
+      {/* SEARCH BAR */}
+      {showSearch&&(
+        <div style={{padding:"12px 18px",background:t.surface,borderBottom:`1px solid ${t.border}`}}>
+          <input
+            autoFocus
+            value={searchQuery}
+            onChange={e=>setSearchQuery(e.target.value)}
+            placeholder="Buscar por descripción, monto o nombre..."
+            style={{width:"100%",background:t.surface2,border:`1px solid ${t.border}`,borderRadius:8,padding:"12px 16px",color:t.text,fontSize:15,boxSizing:"border-box"}}
+          />
+          {searchQuery.trim().length>=2&&(()=>{
+            const q=searchQuery.trim().toLowerCase();
+            const results=expenses.filter(e=>{
+              const desc=(e.desc||e.description||"").toLowerCase();
+              const amt=String(e.amount);
+              const who=(e.who||"").toLowerCase();
+              return desc.includes(q)||amt.includes(q)||who.includes(q);
+            });
+            return(
+              <div style={{marginTop:12,maxHeight:400,overflowY:"auto"}}>
+                <div style={{fontSize:13,color:t.textMuted,marginBottom:8}}>{results.length} resultado{results.length!==1?"s":""}</div>
+                {results.length===0
+                  ?<div style={{textAlign:"center",padding:"20px 0",color:t.textMuted,fontSize:14}}>Sin resultados</div>
+                  :results.map(e=>(
+                    <div key={e.id} style={{background:t.surface,border:`1px solid ${t.border}`,borderRadius:10,padding:"12px 14px",marginBottom:8,display:"flex",alignItems:"center",gap:12}}>
+                      <div style={{fontSize:22,flexShrink:0}}>{CATEGORIES.find(c=>c.id===e.category)?.emoji||"📦"}</div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:600,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.desc||e.description}</div>
+                        <div style={{fontSize:12,color:t.textMuted,marginTop:3,display:"flex",gap:8,flexWrap:"wrap"}}>
+                          <span>{e.date}</span>
+                          <span style={{fontWeight:600,color:t.text}}>{e.who}</span>
+                          {e.nena&&<span style={{color:nenaColor(e.nena),fontWeight:700}}>{e.nena}</span>}
+                          {gallery[e.id]&&<a href={gallery[e.id].link} target="_blank" rel="noreferrer" style={{color:t.accent}}>🧾</a>}
+                        </div>
+                      </div>
+                      <div style={{fontWeight:700,fontSize:15,flexShrink:0}}>{fmt(e.amount)}</div>
+                    </div>
+                  ))
+                }
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
       {/* Banner compensación pendiente */}
       {pendingAlert&&pendingAlert.length>0&&(
         <div style={{background:t.dangerBg,border:`1px solid ${t.dangerBorder}`,borderLeft:`4px solid ${t.danger}`,padding:"14px 18px",display:"flex",alignItems:"center",gap:12}}>
@@ -605,6 +652,7 @@ Reglas:
             </div>
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <button onClick={()=>{setShowSearch(s=>!s);setSearchQuery("");}} style={{...btn(),background:showSearch?t.accent:t.surface2,color:showSearch?"#fff":t.textMuted,padding:"8px 10px",fontSize:13}}>🔍</button>
             {currentUser==="Gus"&&<button onClick={()=>setShowLinks(true)} style={{...btn(),background:t.surface2,color:t.textMuted,padding:"8px 10px",fontSize:13}}>🔗</button>}
             <button onClick={()=>setShowSettings(true)} style={{...btn(),background:t.surface2,color:t.textMuted,padding:"8px 10px",fontSize:13}}>⚙️</button>
             <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)}
