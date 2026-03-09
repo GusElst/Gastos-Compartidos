@@ -314,7 +314,15 @@ Reglas:
         const entry={id:editing,who:form.who,amount:installmentAmount,category:form.category,nena:form.nena,description:form.desc,date:form.date};
         await api({action:"update",table:"expenses",id:editing,data:entry});
         setExpenses(prev=>prev.map(e=>e.id===editing?{...entry,desc:form.desc}:e));
-        showToast("Gasto actualizado ✓");
+        // Subir comprobante si se adjuntó uno nuevo
+        if(form._pendingFile){
+          const result=await uploadComprobante(form._pendingFile,editing,form.who,form.date.slice(0,7));
+          if(result){
+            await api({action:"upsertGallery",data:{expense_id:editing,link:result.url,name:form._pendingFile.name||editing,storage_path:result.storagePath}});
+            setGallery(prev=>({...prev,[editing]:{link:result.url,name:form._pendingFile.name||editing}}));
+            showToast("Gasto y comprobante actualizados ✓");
+          } else { showToast("Gasto actualizado ✓"); }
+        } else { showToast("Gasto actualizado ✓"); }
       } else if(numInstallments > 1) {
         // Generar grupo de cuotas
         const groupId = Date.now().toString();
@@ -948,12 +956,17 @@ Reglas:
               </div>
             </div>
 
-            {!editing&&(
-              <>
-                <input type="file" accept="image/*,application/pdf" ref={fileRef} style={{display:"none"}}
-                  onChange={e=>{
-                    if(!e.target.files[0]) return;
-                    const f=e.target.files[0];
+            {/* Upload / scan — disponible siempre. En edición solo adjunta sin escanear */}
+            <>
+              <input type="file" accept="image/*,application/pdf" ref={fileRef} style={{display:"none"}}
+                onChange={e=>{
+                  if(!e.target.files[0]) return;
+                  const f=e.target.files[0];
+                  if(editing){
+                    // Solo adjuntar, sin tocar los campos del form
+                    setForm(prev=>({...prev,_pendingFile:f}));
+                    showToast("Comprobante listo para adjuntar ✓");
+                  } else {
                     scanFile(f,p=>setForm(prev=>({
                       ...prev,
                       amount:p.amount>0?p.amount.toString():prev.amount,
@@ -965,18 +978,28 @@ Reglas:
                       _pendingFile:f,
                       _hasInterest:p.has_interest||false,
                     })),setScanLoading);
-                  }}/>
-                <button onClick={()=>fileRef.current.click()} disabled={scanLoading}
-                  style={{...btn(),width:"100%",background:t.accentBg,border:`1.5px dashed ${t.accent}`,color:t.accent,padding:18,marginBottom:20,display:"flex",alignItems:"center",justifyContent:"center",gap:10,boxSizing:"border-box"}}>
-                  {scanLoading?"⏳ Escaneando...":"📷 Subir foto, captura o PDF (→ Storage)"}
-                </button>
-                {form._pendingFile&&(
-                  <div style={{...card({padding:"10px 14px",marginBottom:16,border:`1px solid ${t.successBorder}33`}),fontSize:13,color:t.success,display:"flex",alignItems:"center",gap:8}}>
-                    ✅ {form._pendingFile.name} listo para subir
-                  </div>
-                )}
-              </>
-            )}
+                  }
+                }}/>
+              <button onClick={()=>fileRef.current.click()} disabled={scanLoading}
+                style={{...btn(),width:"100%",background:t.accentBg,border:`1.5px dashed ${t.accent}`,color:t.accent,padding:18,marginBottom:16,display:"flex",alignItems:"center",justifyContent:"center",gap:10,boxSizing:"border-box"}}>
+                {scanLoading?"⏳ Escaneando..."
+                  :editing
+                    ?( gallery[editing]?"📎 Reemplazar comprobante":"📎 Adjuntar comprobante")
+                    :"📷 Subir foto, captura o PDF (→ Storage)"}
+              </button>
+              {/* Comprobante ya existente en edición */}
+              {editing&&gallery[editing]&&!form._pendingFile&&(
+                <div style={{...card({padding:"10px 14px",marginBottom:16,border:`1px solid ${t.accent}33`}),fontSize:13,color:t.accent,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+                  <span>☁️ Ya tiene comprobante adjunto</span>
+                  <a href={gallery[editing].link} target="_blank" rel="noreferrer" style={{color:t.accent,fontWeight:700,fontSize:12}}>Ver →</a>
+                </div>
+              )}
+              {form._pendingFile&&(
+                <div style={{...card({padding:"10px 14px",marginBottom:16,border:`1px solid ${t.successBorder}33`}),fontSize:13,color:t.success,display:"flex",alignItems:"center",gap:8}}>
+                  ✅ {form._pendingFile.name} listo para {editing?"adjuntar":"subir"}
+                </div>
+              )}
+            </>
 
             <div style={{marginBottom:18}}>
               <label style={label()}>¿Para quién es el gasto?</label>
