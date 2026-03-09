@@ -850,13 +850,32 @@ Reglas:
 
             {monthPays(filterMonth).length>0&&(
               <div style={{marginBottom:12}}>
-                <div style={{fontWeight:700,fontSize:15,marginBottom:10}}>Pagos registrados</div>
-                {monthPays(filterMonth).map(p=>(
-                  <div key={p.id} style={{...card({padding:"12px 16px",marginBottom:8,border:`1px solid ${t.successBorder}33`}),display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <div><div style={{fontSize:15,fontWeight:600}}>💸 {p.note||"Transferencia"}</div><div style={{fontSize:13,color:t.textMuted,marginTop:3}}>{p.date}</div></div>
-                    <div style={{fontWeight:700,fontSize:16,color:t.success}}>{fmt(p.amount)}</div>
+                <div style={{fontWeight:700,fontSize:15,marginBottom:10}}>💸 Pagos registrados</div>
+                {monthPays(filterMonth).map(p=>{
+                  const comp=gallery[p.id];
+                  return(
+                  <div key={p.id} style={{...card({padding:"16px",marginBottom:10,border:`1px solid ${t.successBorder}44`})}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                      <div style={{display:"flex",alignItems:"center",gap:10}}>
+                        <div style={{width:38,height:38,borderRadius:"50%",background:t.successBg,border:`1.5px solid ${t.successBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>💸</div>
+                        <div>
+                          <div style={{fontWeight:700,fontSize:15,color:t.text}}>{p.note||"Transferencia"}</div>
+                          <div style={{fontSize:12,color:t.textMuted,marginTop:2}}>Mes: {monthLabel(p.month||filterMonth)}</div>
+                        </div>
+                      </div>
+                      <div style={{fontWeight:700,fontSize:18,color:t.success}}>{fmt(p.amount)}</div>
+                    </div>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderTop:`1px solid ${t.border}`,paddingTop:10}}>
+                      <div style={{fontSize:13,color:t.textMuted}}>📅 {p.date}</div>
+                      {comp
+                        ?<a href={comp.link} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:6,background:t.accentBg,border:`1px solid ${t.accent}`,borderRadius:8,padding:"6px 12px",color:t.accent,fontSize:13,fontWeight:600,textDecoration:"none"}}>
+                          🧾 Ver comprobante
+                        </a>
+                        :<span style={{fontSize:12,color:t.textFaint}}>Sin comprobante</span>
+                      }
+                    </div>
                   </div>
-                ))}
+                );})}
               </div>
             )}
 
